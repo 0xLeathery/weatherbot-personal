@@ -27,7 +27,9 @@ for k, v in overrides.items():
     if v is not None:
         cfg[k] = v
 cfg_path.write_text(json.dumps(cfg, indent=2))
-print("[entrypoint] wrote config.json:", json.dumps(cfg))
+# Redact secrets before logging so keys don't leak to Railway log history
+redacted = {**cfg, "vc_key": ("<set>" if cfg.get("vc_key") else "<empty>")}
+print("[entrypoint] wrote config.json:", json.dumps(redacted))
 PY
 fi
 
