@@ -1,0 +1,1654 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-density="balanced" data-accent="cyan">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>weatherbot · paper-trading monitor</title>
+  <style>
+/* weatherbot dashboard — trader terminal aesthetic */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg: oklch(0.18 0.008 240);
+  --bg-2: oklch(0.215 0.01 240);
+  --paper: oklch(0.235 0.012 240);
+  --paper-2: oklch(0.27 0.012 240);
+  --border: oklch(0.32 0.012 240);
+  --border-strong: oklch(0.4 0.015 240);
+  --text: oklch(0.96 0.004 240);
+  --text-2: oklch(0.8 0.008 240);
+  --muted: oklch(0.58 0.012 240);
+  --grid: oklch(0.3 0.01 240 / 0.5);
+  --grid-strong: oklch(0.42 0.012 240 / 0.7);
+
+  --pos: oklch(0.78 0.16 152);
+  --pos-soft: oklch(0.78 0.16 152 / 0.15);
+  --neg: oklch(0.68 0.2 22);
+  --neg-soft: oklch(0.68 0.2 22 / 0.15);
+  --warn: oklch(0.82 0.15 80);
+  --warn-soft: oklch(0.82 0.15 80 / 0.15);
+
+  --accent: oklch(0.78 0.12 220);
+  --accent-soft: oklch(0.78 0.12 220 / 0.18);
+
+  --radius: 6px;
+  --radius-sm: 4px;
+
+  --pad: 20px;
+  --gap: 16px;
+  --row-pad: 12px;
+
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="light"] {
+  --bg: oklch(0.985 0.002 240);
+  --bg-2: oklch(0.97 0.004 240);
+  --paper: oklch(0.995 0.002 240);
+  --paper-2: oklch(0.97 0.004 240);
+  --border: oklch(0.9 0.006 240);
+  --border-strong: oklch(0.82 0.01 240);
+  --text: oklch(0.2 0.008 240);
+  --text-2: oklch(0.38 0.012 240);
+  --muted: oklch(0.55 0.012 240);
+  --grid: oklch(0.85 0.006 240 / 0.8);
+  --grid-strong: oklch(0.72 0.01 240 / 0.9);
+
+  --pos: oklch(0.55 0.18 152);
+  --pos-soft: oklch(0.55 0.18 152 / 0.12);
+  --neg: oklch(0.55 0.22 22);
+  --neg-soft: oklch(0.55 0.22 22 / 0.12);
+  --warn: oklch(0.62 0.16 65);
+  --warn-soft: oklch(0.62 0.16 65 / 0.12);
+  --accent: oklch(0.5 0.16 240);
+  --accent-soft: oklch(0.5 0.16 240 / 0.12);
+}
+
+:root[data-accent="grn"]   { --accent: var(--pos); --accent-soft: var(--pos-soft); }
+:root[data-accent="amber"] { --accent: oklch(0.82 0.15 80); --accent-soft: oklch(0.82 0.15 80 / 0.18); }
+:root[data-accent="violet"]{ --accent: oklch(0.72 0.15 295); --accent-soft: oklch(0.72 0.15 295 / 0.18); }
+
+:root[data-density="airy"]     { --pad: 28px; --gap: 24px; --row-pad: 16px; }
+:root[data-density="balanced"] { --pad: 20px; --gap: 16px; --row-pad: 12px; }
+:root[data-density="dense"]    { --pad: 14px; --gap: 10px; --row-pad: 7px; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  min-height: 100vh;
+}
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.txt-pos { color: var(--pos); }
+.txt-neg { color: var(--neg); }
+.txt-warn { color: var(--warn); }
+
+.app {
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 24px var(--pad) 60px;
+}
+
+/* ===== topbar ===== */
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 18px;
+  margin-bottom: var(--gap);
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+.brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+.brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.topbar-meta {
+  font-size: 12px;
+  color: var(--text-2);
+  display: flex; gap: 8px; align-items: center;
+  justify-self: end;
+}
+.topbar-meta .divider { color: var(--border-strong); }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--pos);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--pos) 25%, transparent);
+  margin-right: 6px;
+  animation: pulse 2s infinite;
+}
+.live-dot.stale { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 25%, transparent); }
+.live-dot.error { background: var(--neg); animation: none; box-shadow: 0 0 0 3px color-mix(in oklch, var(--neg) 25%, transparent); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.topbar-actions { display: flex; gap: 8px; }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-family: var(--sans);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.12s;
+}
+.btn-ghost:hover { border-color: var(--border-strong); color: var(--text); background: var(--paper-2); }
+
+/* ===== KPI strip ===== */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+@media (max-width: 1200px) { .kpi-strip { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 720px)  { .kpi-strip { grid-template-columns: repeat(2, 1fr); } }
+
+.kpi-tile {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--row-pad) 16px;
+  position: relative;
+}
+.kpi-tile::before {
+  content: "";
+  position: absolute; left: 0; top: 10%; bottom: 10%;
+  width: 2px; background: var(--border); border-radius: 2px;
+}
+.kpi-label {
+  font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); font-weight: 500;
+  margin-bottom: 6px;
+}
+.kpi-value {
+  font-size: 22px; font-weight: 600; line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.kpi-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* ===== cards ===== */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--row-pad) 16px 16px;
+  margin-bottom: var(--gap);
+  min-width: 0;
+}
+.card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0 12px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.card-title {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.01em;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.card-count {
+  font-size: 11px; color: var(--muted); font-weight: 500;
+  background: var(--paper-2); padding: 2px 6px; border-radius: 3px;
+}
+.card-meta { font-size: 11px; color: var(--muted); }
+
+.row-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); min-width: 0;
+}
+@media (max-width: 1100px) { .row-2 { grid-template-columns: 1fr; } }
+.row-2 > .card { margin-bottom: 0; }
+.row-2 { margin-bottom: var(--gap); }
+
+/* ===== tables ===== */
+.table-wrap { overflow-x: auto; }
+.table-wrap.scrollable { max-height: 380px; overflow-y: auto; }
+.data-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12.5px;
+}
+.data-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--paper);
+  white-space: nowrap;
+}
+.data-table th.num { text-align: right; }
+.data-table td {
+  padding: var(--row-pad) 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr:hover { background: var(--paper-2); }
+.data-table.compact td { padding: 6px 10px; }
+
+.sort-th { cursor: pointer; user-select: none; }
+.sort-th:hover { color: var(--text); }
+.sort-th span + span { margin-left: 6px; }
+.sort-caret { font-size: 8px; color: var(--border-strong); transition: color 0.12s; }
+.sort-caret.active { color: var(--accent); }
+
+.cell-primary { font-weight: 500; color: var(--text); }
+.cell-sub { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.empty { text-align: center; color: var(--muted); padding: 24px; }
+
+.bucket {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+/* ===== pills / tags ===== */
+.pill {
+  display: inline-block;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+.pill-open { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in oklch, var(--accent) 40%, transparent); }
+.pill-resolved { background: var(--paper-2); color: var(--text-2); border-color: var(--border); }
+.pill-closed { background: var(--paper-2); color: var(--muted); border-color: var(--border); }
+.pill-win { background: var(--pos-soft); color: var(--pos); border-color: color-mix(in oklch, var(--pos) 35%, transparent); }
+.pill-loss { background: var(--neg-soft); color: var(--neg); border-color: color-mix(in oklch, var(--neg) 35%, transparent); }
+.pill-pending { background: var(--paper-2); color: var(--muted); }
+.pill-stop { background: var(--neg-soft); color: var(--neg); border-color: color-mix(in oklch, var(--neg) 35%, transparent); }
+.pill-tp { background: var(--pos-soft); color: var(--pos); border-color: color-mix(in oklch, var(--pos) 35%, transparent); }
+
+.src-tag {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.src-ecmwf { color: oklch(0.78 0.14 220); border-color: oklch(0.78 0.14 220 / 0.35); background: oklch(0.78 0.14 220 / 0.1); }
+.src-hrrr  { color: oklch(0.78 0.15 295); border-color: oklch(0.78 0.15 295 / 0.35); background: oklch(0.78 0.15 295 / 0.1); }
+.src-metar { color: oklch(0.82 0.14 80);  border-color: oklch(0.82 0.14 80 / 0.35);  background: oklch(0.82 0.14 80 / 0.1); }
+:root[data-theme="light"] .src-ecmwf { color: oklch(0.42 0.18 240); background: oklch(0.42 0.18 240 / 0.08); }
+:root[data-theme="light"] .src-hrrr  { color: oklch(0.42 0.2 295);  background: oklch(0.42 0.2 295 / 0.08);  }
+:root[data-theme="light"] .src-metar { color: oklch(0.48 0.16 60);  background: oklch(0.48 0.16 60 / 0.08);   }
+
+/* ===== ev cell ===== */
+.ev-cell { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.ev-pred { color: var(--muted); }
+.ev-arrow { color: var(--border-strong); }
+
+/* ===== charts ===== */
+.chart-wrap { position: relative; width: 100%; min-width: 0; padding-top: 4px; }
+.chart-label { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+.chart-label-muted { font-family: var(--mono); font-size: 10px; fill: var(--muted); opacity: 0.7; }
+
+.chart-tip {
+  position: absolute;
+  padding: 7px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 11px;
+  pointer-events: none;
+  min-width: 120px;
+}
+.tip-date { color: var(--muted); font-size: 10px; letter-spacing: 0.02em; }
+.tip-val { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.tip-sub { color: var(--muted); font-size: 10px; margin-top: 1px; }
+
+/* source bars */
+.src-list { display: flex; flex-direction: column; gap: 14px; padding: 8px 4px; }
+.src-row { display: flex; flex-direction: column; gap: 5px; }
+.src-head { display: flex; justify-content: space-between; align-items: baseline; }
+.src-name { font-weight: 600; font-size: 12px; letter-spacing: 0.04em; }
+.src-meta { font-size: 11px; color: var(--muted); }
+.src-bar-track {
+  position: relative;
+  height: 22px;
+  background: var(--bg-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.src-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+  opacity: 0.85;
+}
+.src-wr {
+  position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+  font-size: 11px; font-weight: 600; color: var(--text);
+  text-shadow: 0 1px 2px var(--bg);
+}
+
+/* horizon grid */
+.horizon-grid { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.horizon-cell {
+  display: grid;
+  grid-template-columns: 60px 1fr 110px;
+  align-items: center;
+  gap: 12px;
+}
+.horizon-label { font-size: 12px; color: var(--text-2); }
+.horizon-bar-track { height: 18px; background: var(--bg-2); border-radius: 3px; overflow: hidden; }
+.horizon-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+  opacity: 0.85;
+}
+.horizon-meta { display: flex; gap: 10px; font-size: 11px; justify-content: flex-end; }
+.horizon-wr { font-weight: 600; color: var(--text); }
+
+/* calibration row flagged */
+.row-flagged { background: color-mix(in oklch, var(--warn) 6%, transparent); }
+.row-flagged:hover { background: color-mix(in oklch, var(--warn) 10%, transparent) !important; }
+
+/* ev legend */
+.ev-legend {
+  display: flex; gap: 14px; align-items: center;
+  padding-top: 8px; font-size: 11px; color: var(--text-2);
+}
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.dot-pos { background: var(--pos); }
+.dot-neg { background: var(--neg); }
+
+/* footer */
+.foot {
+  display: flex; gap: 10px; align-items: center;
+  font-size: 11px; color: var(--muted);
+  padding-top: 16px;
+  flex-wrap: wrap;
+}
+.foot .divider { color: var(--border-strong); }
+
+/* ===== loading + error states ===== */
+.fullscreen-state {
+  display: grid; place-items: center;
+  min-height: 60vh;
+  text-align: center;
+}
+.state-card {
+  max-width: 480px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+}
+.state-title {
+  font-size: 14px; font-weight: 600; letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+.state-msg {
+  font-size: 13px; color: var(--text-2); line-height: 1.5;
+  margin-bottom: 14px;
+}
+.state-cmd {
+  font-family: var(--mono); font-size: 12px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.spinner {
+  width: 22px; height: 22px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== tweaks panel ===== */
+.tweaks {
+  position: fixed;
+  right: 20px; bottom: 20px;
+  width: 280px;
+  background: var(--paper);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 50px -20px rgba(0,0,0,0.5), 0 10px 20px -10px rgba(0,0,0,0.3);
+  z-index: 100;
+  overflow: hidden;
+}
+.tweaks-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  background: var(--paper-2);
+}
+.tweaks-close {
+  background: transparent; border: none; color: var(--muted);
+  font-size: 18px; line-height: 1; cursor: pointer;
+  width: 22px; height: 22px; border-radius: 3px;
+}
+.tweaks-close:hover { color: var(--text); background: var(--bg-2); }
+.tweaks-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto; }
+.tweak-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--muted); font-weight: 500; margin-bottom: 6px;
+}
+.seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.seg-btn {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 5px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--sans);
+  text-transform: capitalize;
+  flex: 1;
+}
+.seg-btn:hover { border-color: var(--border-strong); color: var(--text); }
+.seg-btn.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.seg-btn.swatch { text-align: left; padding-left: 8px; }
+
+.check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.check-row {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--text-2);
+  cursor: pointer;
+  padding: 3px 0;
+}
+.check-row input { accent-color: var(--accent); }
+
+/* scrollbar */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+// ============================================================================
+// weatherbot dashboard — reads from ./data/ (state.json, calibration.json,
+// markets/*.json) via a manifest written by tools/gen_manifest.py.
+// ============================================================================
+
+const { useMemo, useState, useRef, useEffect } = React;
+
+// ---------- constants matching the bot ----------
+const SIGMA_F_DEFAULT = 2.0;
+const SIGMA_C_DEFAULT = 1.2;
+const DATA_BASE = "./data";
+const REFRESH_MS = 60 * 1000;
+
+// ---------- formatting helpers ----------
+function fmtUSD(n, digits = 2) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  return `${sign}$${abs.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}
+function fmtPct(n, d = 1) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  return `${n >= 0 ? "+" : ""}${n.toFixed(d)}%`;
+}
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return "—";
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// ---------- data loader ----------
+// Reads ./data/manifest.json (regenerated by tools/gen_manifest.py),
+// then state.json, calibration.json, and every market file in parallel.
+// Transforms the raw bot schema into the shape the dashboard expects.
+async function loadData() {
+  const fetchJson = async (path, optional = false) => {
+    const url = `${DATA_BASE}/${path}?_=${Date.now()}`;
+    const r = await fetch(url);
+    if (!r.ok) {
+      if (optional) return null;
+      throw new Error(`fetch ${path} → ${r.status}`);
+    }
+    return r.json();
+  };
+
+  const manifest = await fetchJson("manifest.json");
+  if (!manifest || !Array.isArray(manifest.markets)) {
+    throw new Error("manifest.json missing or malformed (expected { markets: [...] })");
+  }
+
+  const [state, calibration, ...rawMarkets] = await Promise.all([
+    fetchJson("state.json"),
+    fetchJson("calibration.json", true).catch(() => null),
+    ...manifest.markets.map((name) =>
+      fetchJson(`markets/${name}`, true).catch(() => null)
+    ),
+  ]);
+
+  // --- transform markets ---
+  const markets = [];
+  let lastTickTs = null;
+
+  for (let i = 0; i < rawMarkets.length; i++) {
+    const m = rawMarkets[i];
+    if (!m) continue;
+    if (!m.position) continue; // skipped market — bot considered but didn't enter
+
+    const pos = m.position;
+    const unit = m.unit || "F";
+    const bucket = `${pos.bucket_low}-${pos.bucket_high}°${unit}`;
+    const isResolved = m.resolved_outcome != null;
+    const isClosed = pos.status === "closed" && !isResolved;
+    const status = isResolved ? "resolved" : (isClosed ? "closed" : "open");
+
+    const realizedPnl = isResolved ? (m.pnl ?? 0) : (isClosed ? (pos.pnl ?? 0) : 0);
+    const cost = pos.cost ?? (pos.entry_price * (pos.shares ?? 0));
+
+    // Track the most-recent timestamp across snapshots for the "last tick" indicator
+    const snaps = m.market_snapshots || [];
+    for (const s of snaps) {
+      if (s.ts && (!lastTickTs || s.ts > lastTickTs)) lastTickTs = s.ts;
+    }
+
+    markets.push({
+      slug: manifest.markets[i].replace(/\.json$/, ""),
+      city: m.city,
+      city_name: m.city_name,
+      date: m.date,
+      unit,
+      station: m.station,
+      event_end_date: m.event_end_date,
+      hours_at_discovery: m.hours_at_discovery,
+      status,
+      position: {
+        entry_price: pos.entry_price,
+        shares: pos.shares,
+        cost,
+        bucket,
+        ev_multiplier: pos.ev,            // bot's predicted EV multiplier (e.g. 5.9x)
+        forecast_src: pos.forecast_src,
+        forecast_temp: pos.forecast_temp,
+        sigma: pos.sigma,
+        opened_at: pos.opened_at,
+        exit_price: pos.exit_price,
+        close_reason: pos.close_reason,
+        closed_at: pos.closed_at,
+      },
+      pnl: realizedPnl,
+      actual_temp: m.actual_temp,
+      resolved_outcome: m.resolved_outcome,
+      forecast_snapshots: m.forecast_snapshots || [],
+      market_snapshots: snaps,
+    });
+  }
+
+  // chronological by event end
+  markets.sort((a, b) => new Date(a.event_end_date) - new Date(b.event_end_date));
+
+  // --- equity curve from chronologically-realized PnL ---
+  const startingBalance = state.starting_balance ?? 1000;
+  const realizedChrono = [...markets]
+    .filter((m) => m.status === "resolved" || m.status === "closed")
+    .sort((a, b) => {
+      const at = new Date(a.position.closed_at || a.event_end_date).getTime();
+      const bt = new Date(b.position.closed_at || b.event_end_date).getTime();
+      return at - bt;
+    });
+
+  const equity = [
+    {
+      ts: realizedChrono.length
+        ? new Date(new Date(realizedChrono[0].position.closed_at || realizedChrono[0].event_end_date).getTime() - 3600 * 1000).toISOString()
+        : new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+      balance: startingBalance,
+    },
+  ];
+  let running = startingBalance;
+  for (const m of realizedChrono) {
+    running += m.pnl;
+    equity.push({
+      ts: m.position.closed_at || m.event_end_date,
+      balance: +running.toFixed(2),
+    });
+  }
+  if (equity.length === 1) {
+    // no realized trades yet — anchor a current point so the chart isn't degenerate
+    equity.push({ ts: new Date().toISOString(), balance: state.balance ?? startingBalance });
+  }
+
+  // --- normalized state ---
+  const normState = {
+    balance: state.balance ?? startingBalance,
+    starting_balance: startingBalance,
+    total_trades: state.total_trades ?? markets.length,
+    wins: state.wins ?? 0,
+    losses: state.losses ?? 0,
+    peak_balance: state.peak_balance ?? startingBalance,
+    last_updated: lastTickTs || new Date().toISOString(),
+  };
+
+  // --- calibration ---
+  const calib = {};
+  if (calibration && typeof calibration === "object") {
+    for (const [k, v] of Object.entries(calibration)) {
+      calib[k] = {
+        sigma: v.sigma,
+        n_samples: v.n_samples ?? 0,
+        last_updated: v.last_updated ?? null,
+      };
+    }
+  }
+
+  return {
+    SIGMA_F_DEFAULT,
+    SIGMA_C_DEFAULT,
+    markets,
+    state: normState,
+    calibration: calib,
+    equity,
+    manifest_generated_at: manifest.generated_at,
+    skipped_count: rawMarkets.filter((m) => m && !m.position).length,
+    considered_count: rawMarkets.length,
+  };
+}
+
+// ============================================================================
+// CHART PRIMITIVES (hand-rolled SVG)
+// ============================================================================
+
+function EquityCurve({ equity, state, height = 280, accent = "grn", filled = true }) {
+  const pad = { top: 16, right: 20, bottom: 24, left: 64 };
+  const ref = useRef(null);
+  const [w, setW] = useState(800);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setW(el.clientWidth));
+    ro.observe(el);
+    setW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const { path, area, ticks, points, zeroY } = useMemo(() => {
+    if (!equity.length) return { path: "", area: "", ticks: [], points: [], zeroY: 0 };
+    const xs = equity.map((e) => new Date(e.ts).getTime());
+    const ys = equity.map((e) => e.balance);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys, state.starting_balance) * 0.995;
+    const yMax = Math.max(...ys, state.peak_balance) * 1.005;
+    const plotW = Math.max(50, w - pad.left - pad.right);
+    const plotH = height - pad.top - pad.bottom;
+    const xScale = (t) => pad.left + ((t - xMin) / (xMax - xMin || 1)) * plotW;
+    const yScale = (v) => pad.top + (1 - (v - yMin) / (yMax - yMin || 1)) * plotH;
+
+    const pts = equity.map((e) => [xScale(new Date(e.ts).getTime()), yScale(e.balance)]);
+    const path = pts.map(([x, y], i) => (i ? `L${x.toFixed(1)} ${y.toFixed(1)}` : `M${x.toFixed(1)} ${y.toFixed(1)}`)).join(" ");
+    const area = `${path} L${pts[pts.length - 1][0].toFixed(1)} ${yScale(yMin).toFixed(1)} L${pts[0][0].toFixed(1)} ${yScale(yMin).toFixed(1)} Z`;
+
+    const ticks = [];
+    const tickCount = 5;
+    for (let i = 0; i <= tickCount; i++) {
+      const v = yMin + (i / tickCount) * (yMax - yMin);
+      ticks.push({ y: yScale(v), v });
+    }
+    return { path, area, ticks, points: pts, zeroY: yScale(state.starting_balance) };
+  }, [equity, w, height, state]);
+
+  const [hover, setHover] = useState(null);
+  function onMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    if (!points.length) return;
+    let best = 0, bestD = Infinity;
+    points.forEach(([px], i) => {
+      const d = Math.abs(px - x);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    setHover(best);
+  }
+
+  const color = accent === "grn" ? "var(--pos)" : "var(--accent)";
+
+  return (
+    <div ref={ref} className="chart-wrap" onMouseLeave={() => setHover(null)}>
+      <svg width={w} height={height} onMouseMove={onMove} style={{ display: "block" }}>
+        <defs>
+          <linearGradient id="eq-grad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={pad.left} x2={w - pad.right} y1={t.y} y2={t.y} stroke="var(--grid)" strokeDasharray="2 3" />
+            <text x={pad.left - 8} y={t.y + 3} textAnchor="end" className="chart-label">{fmtUSD(t.v, 0)}</text>
+          </g>
+        ))}
+        <line x1={pad.left} x2={w - pad.right} y1={zeroY} y2={zeroY} stroke="var(--grid-strong)" strokeDasharray="4 4" />
+        <text x={w - pad.right - 4} y={zeroY - 4} textAnchor="end" className="chart-label-muted">start ${state.starting_balance.toLocaleString()}</text>
+        {filled && <path d={area} fill="url(#eq-grad)" />}
+        <path d={path} fill="none" stroke={color} strokeWidth={1.75} />
+        {hover !== null && points[hover] && (
+          <g>
+            <line x1={points[hover][0]} x2={points[hover][0]} y1={pad.top} y2={height - pad.bottom} stroke="var(--grid-strong)" />
+            <circle cx={points[hover][0]} cy={points[hover][1]} r={4} fill={color} stroke="var(--bg)" strokeWidth={2} />
+          </g>
+        )}
+      </svg>
+      {hover !== null && equity[hover] && (
+        <div className="chart-tip" style={{ left: Math.min(w - 160, points[hover][0] + 10), top: 10 }}>
+          <div className="tip-date">{fmtDateTime(equity[hover].ts)}</div>
+          <div className="tip-val">{fmtUSD(equity[hover].balance)}</div>
+          <div className="tip-sub">{fmtPct((equity[hover].balance / state.starting_balance - 1) * 100)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CityBars({ data, height = 220 }) {
+  const ref = useRef(null);
+  const [w, setW] = useState(600);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const ro = new ResizeObserver(() => setW(el.clientWidth));
+    ro.observe(el); setW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const pad = { top: 16, right: 16, bottom: 40, left: 56 };
+  const plotW = Math.max(50, w - pad.left - pad.right);
+  const plotH = height - pad.top - pad.bottom;
+  if (!data.length) {
+    return (
+      <div ref={ref} className="chart-wrap">
+        <div className="empty">No realized PnL yet — chart fills as markets resolve.</div>
+      </div>
+    );
+  }
+  const max = Math.max(10, ...data.map((d) => Math.abs(d.pnl)));
+  const yMid = pad.top + plotH / 2;
+  const yScale = (v) => yMid - (v / max) * (plotH / 2);
+  const bw = Math.min(42, (plotW / data.length) * 0.68);
+  const step = plotW / data.length;
+
+  return (
+    <div ref={ref} className="chart-wrap">
+      <svg width={w} height={height} style={{ display: "block" }}>
+        {[0.5, 1].map((frac, i) => (
+          <g key={i}>
+            <line x1={pad.left} x2={w - pad.right} y1={yMid - frac * plotH / 2} y2={yMid - frac * plotH / 2} stroke="var(--grid)" strokeDasharray="2 3" />
+            <line x1={pad.left} x2={w - pad.right} y1={yMid + frac * plotH / 2} y2={yMid + frac * plotH / 2} stroke="var(--grid)" strokeDasharray="2 3" />
+            <text x={pad.left - 8} y={yMid - frac * plotH / 2 + 3} textAnchor="end" className="chart-label">{fmtUSD(frac * max, 0)}</text>
+            <text x={pad.left - 8} y={yMid + frac * plotH / 2 + 3} textAnchor="end" className="chart-label">{fmtUSD(-frac * max, 0)}</text>
+          </g>
+        ))}
+        <line x1={pad.left} x2={w - pad.right} y1={yMid} y2={yMid} stroke="var(--grid-strong)" />
+        {data.map((d, i) => {
+          const cx = pad.left + step * (i + 0.5);
+          const y = yScale(d.pnl);
+          const h = Math.abs(y - yMid);
+          const col = d.pnl >= 0 ? "var(--pos)" : "var(--neg)";
+          return (
+            <g key={d.city}>
+              <rect x={cx - bw / 2} y={Math.min(y, yMid)} width={bw} height={Math.max(1, h)} fill={col} opacity={0.85} />
+              <text x={cx} y={height - pad.bottom + 14} textAnchor="middle" className="chart-label">{d.city.slice(0, 4).toUpperCase()}</text>
+              <text x={cx} y={height - pad.bottom + 28} textAnchor="middle" className="chart-label-muted">{d.n}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function EVScatter({ data, height = 260 }) {
+  const ref = useRef(null);
+  const [w, setW] = useState(600);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const ro = new ResizeObserver(() => setW(el.clientWidth));
+    ro.observe(el); setW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const pad = { top: 16, right: 20, bottom: 32, left: 56 };
+  const plotW = Math.max(50, w - pad.left - pad.right);
+  const plotH = height - pad.top - pad.bottom;
+  if (!data.length) {
+    return (
+      <div ref={ref} className="chart-wrap">
+        <div className="empty">No realized trades yet — scatter fills as positions close.</div>
+      </div>
+    );
+  }
+  const xs = data.map(d => d.ev);
+  const ys = data.map(d => d.realized);
+  const min = Math.min(-0.1, ...xs, ...ys);
+  const max = Math.max(0.1, ...xs, ...ys);
+  const xScale = v => pad.left + ((v - min) / (max - min)) * plotW;
+  const yScale = v => pad.top + (1 - (v - min) / (max - min)) * plotH;
+
+  return (
+    <div ref={ref} className="chart-wrap">
+      <svg width={w} height={height} style={{ display: "block" }}>
+        {[0.25, 0.5, 0.75].map((f, i) => (
+          <g key={i}>
+            <line x1={pad.left + plotW * f} x2={pad.left + plotW * f} y1={pad.top} y2={pad.top + plotH} stroke="var(--grid)" strokeDasharray="2 3" />
+            <line x1={pad.left} x2={pad.left + plotW} y1={pad.top + plotH * f} y2={pad.top + plotH * f} stroke="var(--grid)" strokeDasharray="2 3" />
+          </g>
+        ))}
+        <line x1={xScale(0)} x2={xScale(0)} y1={pad.top} y2={pad.top + plotH} stroke="var(--grid-strong)" />
+        <line x1={pad.left} x2={pad.left + plotW} y1={yScale(0)} y2={yScale(0)} stroke="var(--grid-strong)" />
+        <line x1={xScale(min)} y1={yScale(min)} x2={xScale(max)} y2={yScale(max)} stroke="var(--accent)" strokeDasharray="4 4" opacity={0.6} />
+        <text x={xScale(max) - 4} y={yScale(max) + 14} textAnchor="end" className="chart-label-muted">y = x (honest)</text>
+        <text x={pad.left + plotW / 2} y={height - 8} textAnchor="middle" className="chart-label">predicted EV multiplier at entry</text>
+        <text x={14} y={pad.top + plotH / 2} transform={`rotate(-90, 14, ${pad.top + plotH / 2})`} textAnchor="middle" className="chart-label">realized PnL / cost</text>
+        <text x={pad.left} y={height - pad.bottom + 14} textAnchor="middle" className="chart-label">{min.toFixed(2)}</text>
+        <text x={pad.left + plotW} y={height - pad.bottom + 14} textAnchor="middle" className="chart-label">{max.toFixed(2)}</text>
+        <text x={pad.left - 6} y={pad.top + 4} textAnchor="end" className="chart-label">{max.toFixed(2)}</text>
+        <text x={pad.left - 6} y={pad.top + plotH + 4} textAnchor="end" className="chart-label">{min.toFixed(2)}</text>
+        {data.map((d, i) => (
+          <circle key={i} cx={xScale(d.ev)} cy={yScale(d.realized)} r={4} fill={d.realized >= 0 ? "var(--pos)" : "var(--neg)"} opacity={0.72} stroke="var(--bg)" strokeWidth={1} />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function SourceBars({ data }) {
+  const usable = data.filter(d => d.n > 0);
+  if (!usable.length) {
+    return <div className="empty">No resolved trades yet.</div>;
+  }
+  const maxWR = Math.max(...usable.map(d => d.wr), 0.7);
+  return (
+    <div className="src-list">
+      {data.map((d) => (
+        <div key={d.source} className="src-row">
+          <div className="src-head">
+            <div className="src-name">{d.source.toUpperCase()}</div>
+            <div className="src-meta mono">
+              {d.n} {d.n === 1 ? "trade" : "trades"}
+              {d.n > 0 ? ` · avg EV ${d.avgEv >= 0 ? "+" : ""}${d.avgEv.toFixed(2)}x` : ""}
+            </div>
+          </div>
+          <div className="src-bar-track">
+            <div className="src-bar-fill" style={{ width: `${d.n ? (d.wr / maxWR) * 100 : 0}%` }} />
+            <span className="src-wr mono">{d.n ? `${(d.wr * 100).toFixed(1)}%` : "—"}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DrawdownChart({ equity, height = 160 }) {
+  const ref = useRef(null);
+  const [w, setW] = useState(600);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const ro = new ResizeObserver(() => setW(el.clientWidth));
+    ro.observe(el); setW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const pad = { top: 12, right: 16, bottom: 24, left: 60 };
+
+  const { path, area, ticks } = useMemo(() => {
+    if (equity.length < 2) return { path: "", area: "", ticks: [] };
+    let peak = equity[0].balance;
+    const dd = equity.map((e) => {
+      peak = Math.max(peak, e.balance);
+      return { ts: e.ts, v: peak > 0 ? (e.balance - peak) / peak : 0 };
+    });
+    const xs = dd.map(e => new Date(e.ts).getTime());
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(-0.001, ...dd.map(d => d.v));
+    const plotW = Math.max(50, w - pad.left - pad.right);
+    const plotH = height - pad.top - pad.bottom;
+    const xScale = (t) => pad.left + ((t - xMin) / (xMax - xMin || 1)) * plotW;
+    const yScale = (v) => pad.top + (v / yMin) * plotH;
+    const pts = dd.map((d) => [xScale(new Date(d.ts).getTime()), yScale(d.v)]);
+    const path = pts.map(([x, y], i) => (i ? `L${x.toFixed(1)} ${y.toFixed(1)}` : `M${x.toFixed(1)} ${y.toFixed(1)}`)).join(" ");
+    const area = `${path} L${pts[pts.length - 1][0].toFixed(1)} ${pad.top} L${pts[0][0].toFixed(1)} ${pad.top} Z`;
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ y: pad.top + f * plotH, v: yMin * f }));
+    return { path, area, ticks };
+  }, [equity, w, height]);
+
+  if (equity.length < 2) {
+    return <div ref={ref} className="chart-wrap"><div className="empty">Not enough data points yet.</div></div>;
+  }
+
+  return (
+    <div ref={ref} className="chart-wrap">
+      <svg width={w} height={height} style={{ display: "block" }}>
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={pad.left} x2={w - pad.right} y1={t.y} y2={t.y} stroke="var(--grid)" strokeDasharray="2 3" />
+            <text x={pad.left - 8} y={t.y + 3} textAnchor="end" className="chart-label">{(t.v * 100).toFixed(1)}%</text>
+          </g>
+        ))}
+        <path d={area} fill="var(--neg)" opacity={0.18} />
+        <path d={path} stroke="var(--neg)" strokeWidth={1.5} fill="none" />
+      </svg>
+    </div>
+  );
+}
+
+// ============================================================================
+// SMALL PRESENTATION COMPONENTS
+// ============================================================================
+
+function KpiTile({ label, value, sub, accent, mono = true }) {
+  return (
+    <div className="kpi-tile">
+      <div className="kpi-label">{label}</div>
+      <div className={`kpi-value ${mono ? "mono" : ""}`} style={accent ? { color: accent } : {}}>{value}</div>
+      {sub !== undefined && <div className="kpi-sub mono">{sub}</div>}
+    </div>
+  );
+}
+
+function StatusPill({ status, closeReason }) {
+  if (status === "open") return <span className="pill pill-open">OPEN</span>;
+  if (status === "resolved") return <span className="pill pill-resolved">RESOLVED</span>;
+  if (status === "closed") {
+    const cls = closeReason === "stop_loss" ? "pill-stop" : closeReason === "take_profit" ? "pill-tp" : "pill-closed";
+    const label = closeReason ? closeReason.replace(/_/g, " ").toUpperCase() : "CLOSED";
+    return <span className={`pill ${cls}`}>{label}</span>;
+  }
+  return <span className="pill">{status}</span>;
+}
+
+function OutcomePill({ outcome }) {
+  if (!outcome) return <span className="pill pill-pending">—</span>;
+  return <span className={`pill ${outcome === "win" ? "pill-win" : "pill-loss"}`}>{outcome.toUpperCase()}</span>;
+}
+
+function SourceTag({ src }) {
+  const known = ["ecmwf", "hrrr", "metar"];
+  const s = (src || "").toLowerCase();
+  return <span className={`src-tag ${known.includes(s) ? `src-${s}` : ""}`}>{(src || "—").toUpperCase()}</span>;
+}
+
+// ============================================================================
+// MAIN APP
+// ============================================================================
+
+function App({ data, lastFetched, onRefresh, fetchError }) {
+  const [theme, setTheme] = useState(() => localStorage.getItem("wb.theme") || "dark");
+  const [density, setDensity] = useState(() => localStorage.getItem("wb.density") || "balanced");
+  const [accent, setAccent] = useState(() => localStorage.getItem("wb.accent") || "cyan");
+  const [chartStyle, setChartStyle] = useState(() => localStorage.getItem("wb.chart") || "filled");
+  const [sections, setSections] = useState(() => JSON.parse(localStorage.getItem("wb.sections") || "null") || {
+    equity: true, open: true, resolved: true, city: true, source: true, calib: true, ev: true, dd: true, horizon: true,
+  });
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState({ key: "hoursLeft", dir: "asc" });
+  const [sortResolved, setSortResolved] = useState({ key: "ts", dir: "desc" });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.density = density;
+    document.documentElement.dataset.accent = accent;
+    localStorage.setItem("wb.theme", theme);
+    localStorage.setItem("wb.density", density);
+    localStorage.setItem("wb.accent", accent);
+    localStorage.setItem("wb.chart", chartStyle);
+    localStorage.setItem("wb.sections", JSON.stringify(sections));
+  }, [theme, density, accent, chartStyle, sections]);
+
+  // --- derivations ---
+  const open = data.markets.filter((m) => m.status === "open");
+  const resolved = data.markets.filter((m) => m.status === "resolved" || m.status === "closed");
+
+  const openEnriched = open.map((m) => {
+    const last = m.market_snapshots[m.market_snapshots.length - 1];
+    const currentPrice = last ? last.top_price : m.position.entry_price;
+    const unrealized = (currentPrice - m.position.entry_price) * (m.position.shares || 0);
+    const hoursLeft = Math.max(0, (new Date(m.event_end_date) - Date.now()) / 3600000);
+    return { ...m, currentPrice, unrealized, hoursLeft };
+  });
+
+  const unrealizedTotal = openEnriched.reduce((s, m) => s + m.unrealized, 0);
+  const totalReturn = ((data.state.balance - data.state.starting_balance) / data.state.starting_balance) * 100;
+  const winRate = data.state.total_trades ? (data.state.wins / Math.max(1, data.state.wins + data.state.losses)) * 100 : 0;
+  const maxDD = useMemo(() => {
+    if (data.equity.length < 2) return 0;
+    let peak = data.equity[0].balance, worst = 0;
+    for (const e of data.equity) {
+      peak = Math.max(peak, e.balance);
+      worst = Math.min(worst, peak > 0 ? (e.balance - peak) / peak : 0);
+    }
+    return worst * 100;
+  }, [data.equity]);
+
+  const cityData = useMemo(() => {
+    const agg = {};
+    for (const m of resolved) {
+      const k = m.city_name || m.city;
+      agg[k] = agg[k] || { city: k, pnl: 0, n: 0 };
+      agg[k].pnl += m.pnl;
+      agg[k].n += 1;
+    }
+    return Object.values(agg).sort((a, b) => b.pnl - a.pnl);
+  }, [resolved]);
+
+  const sourceData = useMemo(() => {
+    const agg = { ecmwf: { n: 0, wins: 0, evSum: 0 }, hrrr: { n: 0, wins: 0, evSum: 0 }, metar: { n: 0, wins: 0, evSum: 0 } };
+    for (const m of resolved) {
+      const src = (m.position.forecast_src || m.forecast_snapshots[0]?.best_source || "").toLowerCase();
+      if (!agg[src]) continue;
+      agg[src].n++;
+      if (m.pnl > 0) agg[src].wins++;
+      if (m.position.ev_multiplier != null) agg[src].evSum += m.position.ev_multiplier;
+    }
+    return Object.entries(agg).map(([source, a]) => ({
+      source,
+      n: a.n,
+      wr: a.n ? a.wins / a.n : 0,
+      avgEv: a.n ? a.evSum / a.n : 0,
+    }));
+  }, [resolved]);
+
+  const calibRows = useMemo(() => {
+    return Object.entries(data.calibration).map(([key, v]) => {
+      const us = key.split("_");
+      const source = us[us.length - 1];
+      const city = us.slice(0, -1).join("_");
+      const isF = !data.markets.some((m) => m.city === city) || data.markets.find((m) => m.city === city)?.unit === "F";
+      const def = isF ? data.SIGMA_F_DEFAULT : data.SIGMA_C_DEFAULT;
+      const drift = def ? ((v.sigma - def) / def) * 100 : 0;
+      return { key, city, source, ...v, drift, flagged: Math.abs(drift) > 25 };
+    }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+  }, [data.calibration, data.markets]);
+
+  const evScatter = useMemo(() => {
+    return resolved
+      .filter((m) => m.position.ev_multiplier != null && m.position.cost > 0)
+      .map((m) => {
+        const ev = m.position.ev_multiplier;
+        const realized = m.pnl / m.position.cost;
+        return { ev, realized, city: m.city_name };
+      });
+  }, [resolved]);
+
+  const horizonData = useMemo(() => {
+    const buckets = [
+      { label: "0-6h", range: [0, 6] },
+      { label: "6-12h", range: [6, 12] },
+      { label: "12-24h", range: [12, 24] },
+      { label: "24-48h", range: [24, 48] },
+      { label: "48h+", range: [48, 9999] },
+    ];
+    return buckets.map((b) => {
+      const trades = resolved.filter((m) => {
+        const hl = m.hours_at_discovery || m.forecast_snapshots[0]?.hours_left || 0;
+        return hl >= b.range[0] && hl < b.range[1];
+      });
+      const wins = trades.filter((t) => t.pnl > 0).length;
+      return { ...b, n: trades.length, wr: trades.length ? wins / trades.length : 0 };
+    });
+  }, [resolved]);
+
+  function applySort(arr, cfg, getters) {
+    const f = getters[cfg.key];
+    if (!f) return arr;
+    return [...arr].sort((a, b) => {
+      const av = f(a), bv = f(b);
+      if (av === bv) return 0;
+      return (av > bv ? 1 : -1) * (cfg.dir === "asc" ? 1 : -1);
+    });
+  }
+
+  const openSorted = applySort(openEnriched, sortOpen, {
+    city: (m) => m.city_name,
+    bucket: (m) => m.position.bucket,
+    entry: (m) => m.position.entry_price,
+    current: (m) => m.currentPrice,
+    unrealized: (m) => m.unrealized,
+    hoursLeft: (m) => m.hoursLeft,
+    source: (m) => m.position.forecast_src || "",
+  });
+
+  const resolvedSorted = applySort(resolved.slice(-50), sortResolved, {
+    city: (m) => m.city_name,
+    date: (m) => m.date,
+    bucket: (m) => m.position.bucket,
+    entry: (m) => m.position.entry_price,
+    pnl: (m) => m.pnl,
+    outcome: (m) => m.resolved_outcome || m.position.close_reason || "",
+    ts: (m) => new Date(m.position.closed_at || m.event_end_date).getTime(),
+  });
+
+  function SortHead({ label, col, cfg, set, align }) {
+    const active = cfg.key === col;
+    return (
+      <th className={`sort-th ${align || ""}`} onClick={() => set({ key: col, dir: active && cfg.dir === "asc" ? "desc" : "asc" })}>
+        <span>{label}</span>
+        <span className={`sort-caret ${active ? "active" : ""}`}>{active ? (cfg.dir === "asc" ? "▲" : "▼") : "◆"}</span>
+      </th>
+    );
+  }
+
+  // staleness: if last tick is older than 30 min, mark live-dot stale; >2h, error
+  const lastTickAge = (Date.now() - new Date(data.state.last_updated).getTime()) / 60000;
+  const dotState = fetchError ? "error" : lastTickAge > 120 ? "error" : lastTickAge > 30 ? "stale" : "ok";
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="2" y="10" width="3" height="8" fill="currentColor" />
+              <rect x="7" y="6" width="3" height="12" fill="currentColor" opacity="0.75" />
+              <rect x="12" y="12" width="3" height="6" fill="currentColor" opacity="0.5" />
+              <path d="M2 8 L7 4 L12 7 L18 2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            </svg>
+          </div>
+          <div className="brand-txt">
+            <div className="brand-name">weatherbot</div>
+            <div className="brand-sub mono">paper-trading monitor</div>
+          </div>
+        </div>
+        <div className="topbar-meta mono">
+          <span className={`live-dot ${dotState === "ok" ? "" : dotState}`} />
+          {fetchError ? "fetch error" : "connected"} · <span className="muted">./data/</span>
+          <span className="divider">·</span>
+          last tick <span className="mono">{fmtDateTime(data.state.last_updated)}</span>
+          <span className="divider">·</span>
+          <span className="muted">refreshed {fmtDateTime(lastFetched)}</span>
+        </div>
+        <div className="topbar-actions">
+          <button className="btn-ghost" onClick={onRefresh}>↻ Refresh</button>
+          <button className="btn-ghost" onClick={() => setTweaksOpen((v) => !v)}>◎ Tweaks</button>
+        </div>
+      </header>
+
+      {fetchError && (
+        <div className="card" style={{ borderColor: "var(--neg)", color: "var(--neg)" }}>
+          <strong>Last refresh failed:</strong> {fetchError} — showing stale data.
+        </div>
+      )}
+
+      {/* ===== KPI STRIP ===== */}
+      <section className="kpi-strip">
+        <KpiTile label="Balance" value={fmtUSD(data.state.balance)} sub={`peak ${fmtUSD(data.state.peak_balance, 0)}`} />
+        <KpiTile
+          label="Return"
+          value={fmtPct(totalReturn, 2)}
+          sub={`from ${fmtUSD(data.state.starting_balance, 0)}`}
+          accent={totalReturn >= 0 ? "var(--pos)" : "var(--neg)"}
+        />
+        <KpiTile label="Total trades" value={data.state.total_trades} sub={`${data.state.wins}W · ${data.state.losses}L`} />
+        <KpiTile label="Win rate" value={data.state.wins + data.state.losses ? `${winRate.toFixed(1)}%` : "—"} sub={`of ${data.state.wins + data.state.losses} resolved`} />
+        <KpiTile label="Open positions" value={open.length} sub={`${openEnriched.filter((m) => m.hoursLeft < 6).length} <6h`} />
+        <KpiTile
+          label="Unrealized PnL"
+          value={fmtUSD(unrealizedTotal)}
+          sub={`${openEnriched.filter((m) => m.unrealized > 0).length} up · ${openEnriched.filter((m) => m.unrealized <= 0).length} down`}
+          accent={unrealizedTotal >= 0 ? "var(--pos)" : "var(--neg)"}
+        />
+        <KpiTile label="Max drawdown" value={`${maxDD.toFixed(2)}%`} sub="peak-to-trough" accent={maxDD < 0 ? "var(--neg)" : undefined} />
+      </section>
+
+      {/* ===== EQUITY CURVE ===== */}
+      {sections.equity && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">Equity curve</div>
+            <div className="card-meta mono">
+              {data.equity.length} points · {fmtDate(data.equity[0]?.ts)} → {fmtDate(data.equity[data.equity.length - 1]?.ts)}
+            </div>
+          </div>
+          <EquityCurve equity={data.equity} state={data.state} accent={accent === "grn" ? "grn" : "accent"} filled={chartStyle === "filled"} />
+        </section>
+      )}
+
+      {/* ===== OPEN POSITIONS ===== */}
+      {sections.open && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">Open positions <span className="card-count mono">{open.length}</span></div>
+            <div className="card-meta mono">unrealized {fmtUSD(unrealizedTotal)}</div>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <SortHead label="City" col="city" cfg={sortOpen} set={setSortOpen} />
+                  <SortHead label="Bucket" col="bucket" cfg={sortOpen} set={setSortOpen} />
+                  <SortHead label="Entry" col="entry" cfg={sortOpen} set={setSortOpen} align="num" />
+                  <SortHead label="Last" col="current" cfg={sortOpen} set={setSortOpen} align="num" />
+                  <SortHead label="Unrealized" col="unrealized" cfg={sortOpen} set={setSortOpen} align="num" />
+                  <SortHead label="Resolves" col="hoursLeft" cfg={sortOpen} set={setSortOpen} align="num" />
+                  <SortHead label="Source" col="source" cfg={sortOpen} set={setSortOpen} />
+                </tr>
+              </thead>
+              <tbody>
+                {openSorted.map((m, i) => (
+                  <tr key={`${m.slug}-${i}`}>
+                    <td>
+                      <div className="cell-primary">{m.city_name}</div>
+                      <div className="cell-sub mono">{m.station} · {m.date}</div>
+                    </td>
+                    <td><span className="bucket">{m.position.bucket}</span></td>
+                    <td className="mono num">{m.position.entry_price.toFixed(3)}</td>
+                    <td className="mono num">
+                      <span className={m.currentPrice >= m.position.entry_price ? "txt-pos" : "txt-neg"}>
+                        {m.currentPrice.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className={`mono num ${m.unrealized >= 0 ? "txt-pos" : "txt-neg"}`}>
+                      {fmtUSD(m.unrealized)}
+                    </td>
+                    <td className="mono num">
+                      <span className={m.hoursLeft < 6 ? "txt-warn" : ""}>{m.hoursLeft.toFixed(1)}h</span>
+                    </td>
+                    <td><SourceTag src={m.position.forecast_src} /></td>
+                  </tr>
+                ))}
+                {openSorted.length === 0 && <tr><td colSpan={7} className="empty">No open positions.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ===== RESOLVED TRADES ===== */}
+      {sections.resolved && (
+        <section className="card">
+          <div className="card-head">
+            <div className="card-title">Resolved &amp; closed trades <span className="card-count mono">last {Math.min(50, resolved.length)}</span></div>
+            <div className="card-meta mono">
+              realized {fmtUSD(resolved.reduce((s, m) => s + m.pnl, 0))} ·
+              avg PnL {resolved.length ? fmtUSD(resolved.reduce((s, m) => s + m.pnl, 0) / resolved.length) : "—"}
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <SortHead label="City" col="city" cfg={sortResolved} set={setSortResolved} />
+                  <SortHead label="Date" col="date" cfg={sortResolved} set={setSortResolved} />
+                  <SortHead label="Bucket" col="bucket" cfg={sortResolved} set={setSortResolved} />
+                  <SortHead label="Entry" col="entry" cfg={sortResolved} set={setSortResolved} align="num" />
+                  <th>Outcome</th>
+                  <SortHead label="Realized" col="pnl" cfg={sortResolved} set={setSortResolved} align="num" />
+                  <th className="num">EV@entry → realized</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resolvedSorted.length === 0 && <tr><td colSpan={7} className="empty">No closed trades yet — waiting for the first resolution.</td></tr>}
+                {resolvedSorted.map((m, i) => {
+                  const evEntry = m.position.ev_multiplier ?? 0;
+                  const evReal = m.position.cost ? m.pnl / m.position.cost : 0;
+                  const outcome = m.resolved_outcome || (m.pnl > 0 ? "win" : (m.pnl < 0 ? "loss" : null));
+                  return (
+                    <tr key={`${m.slug}-${i}`}>
+                      <td>
+                        <div className="cell-primary">{m.city_name}</div>
+                        <div className="cell-sub mono">{m.station}</div>
+                      </td>
+                      <td className="mono">{m.date}</td>
+                      <td><span className="bucket">{m.position.bucket}</span></td>
+                      <td className="mono num">{m.position.entry_price.toFixed(3)}</td>
+                      <td>
+                        {m.resolved_outcome
+                          ? <OutcomePill outcome={m.resolved_outcome} />
+                          : <StatusPill status="closed" closeReason={m.position.close_reason} />}
+                      </td>
+                      <td className={`mono num ${m.pnl >= 0 ? "txt-pos" : "txt-neg"}`}>{fmtUSD(m.pnl)}</td>
+                      <td className="mono num ev-cell">
+                        <span className="ev-pred">{evEntry.toFixed(2)}x</span>
+                        <span className="ev-arrow">→</span>
+                        <span className={evReal >= 0 ? "txt-pos" : "txt-neg"}>{evReal >= 0 ? "+" : ""}{evReal.toFixed(2)}x</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ===== CITY + SOURCE side by side ===== */}
+      <div className="row-2">
+        {sections.city && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">PnL by city</div>
+              <div className="card-meta mono">{cityData.length} cities · {resolved.length} trades</div>
+            </div>
+            <CityBars data={cityData} />
+          </section>
+        )}
+        {sections.source && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">Forecast source accuracy</div>
+              <div className="card-meta mono">win rate · trade count</div>
+            </div>
+            <SourceBars data={sourceData} />
+          </section>
+        )}
+      </div>
+
+      {/* ===== HORIZON + DD side by side ===== */}
+      <div className="row-2">
+        {sections.horizon && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">Hit rate by forecast horizon</div>
+              <div className="card-meta mono">hours until resolution at discovery</div>
+            </div>
+            <div className="horizon-grid">
+              {horizonData.map((h) => (
+                <div className="horizon-cell" key={h.label}>
+                  <div className="horizon-label mono">{h.label}</div>
+                  <div className="horizon-bar-track">
+                    <div className="horizon-bar-fill" style={{ width: `${h.wr * 100}%` }} />
+                  </div>
+                  <div className="horizon-meta mono">
+                    <span className="horizon-wr">{h.n ? `${(h.wr * 100).toFixed(0)}%` : "—"}</span>
+                    <span className="muted">n={h.n}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {sections.dd && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">Drawdown</div>
+              <div className="card-meta mono">peak-to-trough, cumulative</div>
+            </div>
+            <DrawdownChart equity={data.equity} />
+          </section>
+        )}
+      </div>
+
+      {/* ===== CALIBRATION + EV SCATTER ===== */}
+      <div className="row-2">
+        {sections.calib && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">Calibration drift <span className="card-count mono">{calibRows.filter((r) => r.flagged).length} flagged</span></div>
+              <div className="card-meta mono">defaults σ_F={data.SIGMA_F_DEFAULT} · σ_C={data.SIGMA_C_DEFAULT} · |drift| &gt; 25%</div>
+            </div>
+            <div className="table-wrap scrollable">
+              {calibRows.length === 0 ? (
+                <div className="empty">No calibration data yet — bot writes calibration.json after the first 30 resolutions per (city, source).</div>
+              ) : (
+                <table className="data-table compact">
+                  <thead>
+                    <tr>
+                      <th>City</th>
+                      <th>Source</th>
+                      <th className="num">σ</th>
+                      <th className="num">drift</th>
+                      <th className="num">n</th>
+                      <th>updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calibRows.map((r) => (
+                      <tr key={r.key} className={r.flagged ? "row-flagged" : ""}>
+                        <td className="mono">{r.city}</td>
+                        <td><SourceTag src={r.source} /></td>
+                        <td className="mono num">{r.sigma.toFixed(3)}</td>
+                        <td className={`mono num ${Math.abs(r.drift) > 25 ? (r.drift > 0 ? "txt-warn" : "txt-pos") : ""}`}>
+                          {r.drift >= 0 ? "+" : ""}{r.drift.toFixed(1)}%
+                        </td>
+                        <td className="mono num">{r.n_samples}</td>
+                        <td className="mono muted">{fmtDate(r.last_updated)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </section>
+        )}
+
+        {sections.ev && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">EV calibration</div>
+              <div className="card-meta mono">predicted vs realized · {evScatter.length} points</div>
+            </div>
+            <EVScatter data={evScatter} />
+            <div className="ev-legend mono">
+              <span><span className="dot dot-pos" /> winner</span>
+              <span><span className="dot dot-neg" /> loser</span>
+              <span className="muted">— Points above y=x = bot under-priced winners.</span>
+            </div>
+          </section>
+        )}
+      </div>
+
+      <footer className="foot mono">
+        <span>bot_v2.py · alteregoeth-ai/weatherbot</span>
+        <span className="divider">·</span>
+        <span>state.json balance {fmtUSD(data.state.balance)}</span>
+        <span className="divider">·</span>
+        <span>{data.considered_count} markets considered · {data.markets.length} entered · {data.skipped_count} skipped</span>
+        {data.manifest_generated_at && (
+          <>
+            <span className="divider">·</span>
+            <span>manifest {fmtDateTime(data.manifest_generated_at)}</span>
+          </>
+        )}
+      </footer>
+
+      {/* ===== TWEAKS PANEL ===== */}
+      {tweaksOpen && (
+        <aside className="tweaks">
+          <div className="tweaks-head">
+            <div>Tweaks</div>
+            <button className="tweaks-close" onClick={() => setTweaksOpen(false)}>×</button>
+          </div>
+          <div className="tweaks-body">
+            <div className="tweak-group">
+              <div className="tweak-label">Theme</div>
+              <div className="seg">
+                {["dark", "light"].map((t) => (
+                  <button key={t} className={`seg-btn ${theme === t ? "on" : ""}`} onClick={() => setTheme(t)}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div className="tweak-group">
+              <div className="tweak-label">Density</div>
+              <div className="seg">
+                {["airy", "balanced", "dense"].map((d) => (
+                  <button key={d} className={`seg-btn ${density === d ? "on" : ""}`} onClick={() => setDensity(d)}>{d}</button>
+                ))}
+              </div>
+            </div>
+            <div className="tweak-group">
+              <div className="tweak-label">Accent</div>
+              <div className="seg">
+                {[
+                  ["cyan", "#5ad6ff"],
+                  ["grn", "var(--pos)"],
+                  ["amber", "#f5b94a"],
+                  ["violet", "#b28bff"],
+                ].map(([a, col]) => (
+                  <button
+                    key={a}
+                    className={`seg-btn swatch ${accent === a ? "on" : ""}`}
+                    onClick={() => setAccent(a)}
+                    style={{ borderLeft: `3px solid ${col}` }}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="tweak-group">
+              <div className="tweak-label">Chart style</div>
+              <div className="seg">
+                {["filled", "line"].map((c) => (
+                  <button key={c} className={`seg-btn ${chartStyle === c ? "on" : ""}`} onClick={() => setChartStyle(c)}>{c}</button>
+                ))}
+              </div>
+            </div>
+            <div className="tweak-group">
+              <div className="tweak-label">Sections</div>
+              <div className="check-grid">
+                {Object.entries({
+                  equity: "Equity curve",
+                  open: "Open positions",
+                  resolved: "Resolved trades",
+                  city: "PnL by city",
+                  source: "Source accuracy",
+                  horizon: "Horizon accuracy",
+                  dd: "Drawdown",
+                  calib: "Calibration",
+                  ev: "EV scatter",
+                }).map(([k, label]) => (
+                  <label key={k} className="check-row">
+                    <input type="checkbox" checked={sections[k]} onChange={(e) => setSections((s) => ({ ...s, [k]: e.target.checked }))} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// LOADER ROOT
+// ============================================================================
+
+function LoadingScreen() {
+  return (
+    <div className="app">
+      <div className="fullscreen-state">
+        <div className="state-card">
+          <div className="spinner" />
+          <div className="state-title">Loading data</div>
+          <div className="state-msg">Fetching <span className="mono">./data/manifest.json</span> and market files…</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ErrorScreen({ message }) {
+  return (
+    <div className="app">
+      <div className="fullscreen-state">
+        <div className="state-card">
+          <div className="state-title txt-neg">Couldn't load data</div>
+          <div className="state-msg">{message}</div>
+          <div className="state-msg">
+            Make sure you've synced data from Railway and regenerated the manifest:
+          </div>
+          <pre className="state-cmd">{`# from the project root
+bash tools/sync.sh         # pulls /app/data/ from Railway
+python3 tools/gen_manifest.py   # writes data/manifest.json
+
+# then serve from the project root and reload:
+python3 -m http.server 8000
+# → http://localhost:8000/Dashboard.html`}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Root() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [lastFetched, setLastFetched] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
+
+  async function refresh() {
+    try {
+      const d = await loadData();
+      setData(d);
+      setLastFetched(new Date().toISOString());
+      setError(null);
+      setFetchError(null);
+    } catch (e) {
+      if (data) {
+        // we have stale data — surface but keep showing
+        setFetchError(e.message);
+        setLastFetched(new Date().toISOString());
+      } else {
+        setError(e.message);
+      }
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, REFRESH_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (error && !data) return <ErrorScreen message={error} />;
+  if (!data) return <LoadingScreen />;
+  return <App data={data} lastFetched={lastFetched} onRefresh={refresh} fetchError={fetchError} />;
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<Root />);
+  </script>
+</body>
+</html>
