@@ -1,127 +1,88 @@
-# 🌤 WeatherBet — Polymarket Weather Trading Bot
+# weatherbot-personal
 
-Automated weather market trading bot for Polymarket. Finds mispriced temperature outcomes using real forecast data from multiple sources across 20 cities worldwide.
+Personal fork of [`alteregoeth-ai/weatherbot`](https://github.com/alteregoeth-ai/weatherbot) — a Polymarket weather paper-trading bot — packaged for one-command Railway deploy with a real-time dashboard.
 
-No SDK. No black box. Pure Python.
+**Live dashboard:** https://weatherbot-production-c11b.up.railway.app
 
----
-
-## Versions
-
-### `bot_v1.py` — Base Bot
-The foundation. Scans 6 US cities, fetches forecasts from NWS using airport station coordinates, finds matching temperature buckets on Polymarket, and enters trades when the market price is below the entry threshold.
-
-No math, no complexity. Just the core logic — good for understanding how the system works.
-
-### `weatherbet.py` — Full Bot (current)
-Everything in v1, plus:
-- **20 cities** across 4 continents (US, Europe, Asia, South America, Oceania)
-- **3 forecast sources** — ECMWF (global), HRRR/GFS (US, hourly), METAR (real-time observations)
-- **Expected Value** — skips trades where the math doesn't work
-- **Kelly Criterion** — sizes positions based on edge strength
-- **Stop-loss + trailing stop** — 20% stop, moves to breakeven at +20%
-- **Slippage filter** — skips markets with spread > $0.03
-- **Self-calibration** — learns forecast accuracy per city over time
-- **Full data storage** — every forecast snapshot, trade, and resolution saved to JSON
+The bot is **paper-trade only**. There is no on-chain code, no wallet, no real money at stake. See the article (`ARTICLE.md`) for why that surprised me, given how the original viral guide framed it.
 
 ---
 
-## How It Works
+## What's here
 
-Polymarket runs markets like "Will the highest temperature in Chicago be between 46–47°F on March 7?" These markets are often mispriced — the forecast says 78% likely but the market is trading at 8 cents.
-
-The bot:
-1. Fetches forecasts from ECMWF and HRRR via Open-Meteo (free, no key required)
-2. Gets real-time observations from METAR airport stations
-3. Finds the matching temperature bucket on Polymarket
-4. Calculates Expected Value — only enters if the math is positive
-5. Sizes the position using fractional Kelly Criterion
-6. Monitors stops every 10 minutes, full scan every hour
-7. Auto-resolves markets by querying Polymarket API directly
-
----
-
-## Why Airport Coordinates Matter
-
-Most bots use city center coordinates. That's wrong.
-
-Every Polymarket weather market resolves on a specific airport station. NYC resolves on LaGuardia (KLGA), Dallas on Love Field (KDAL) — not DFW. The difference between city center and airport can be 3–8°F. On markets with 1–2°F buckets, that's the difference between the right trade and a guaranteed loss.
-
-| City | Station | Airport |
-|------|---------|---------|
-| NYC | KLGA | LaGuardia |
-| Chicago | KORD | O'Hare |
-| Miami | KMIA | Miami Intl |
-| Dallas | KDAL | Love Field |
-| Seattle | KSEA | Sea-Tac |
-| Atlanta | KATL | Hartsfield |
-| London | EGLC | London City |
-| Tokyo | RJTT | Haneda |
-| ... | ... | ... |
+| File | Purpose |
+|------|---------|
+| `bot_v2.py`, `bot_v1.py` | The actual trading logic (unchanged from `alteregoeth-ai/weatherbot`). See `BOT_README.md`. |
+| `config.json` | Paper-trade defaults: $1000 starting balance, $20 max bet, 10% min EV. |
+| `Dashboard.html` | Single-file React + Babel dashboard. Reads bot data via a manifest. Trader-terminal aesthetic, hand-rolled SVG charts, dark/light themes, Tweaks panel. |
+| `dashboard_server.py` | Tiny Python HTTP server that serves `Dashboard.html` + `data/`, regenerates `manifest.json` every 60s. Optional HTTP basic auth via `DASH_USER`/`DASH_PASS`. |
+| `entrypoint.sh` | Container start script — generates `config.json` from env vars, spawns dashboard in background, execs the bot. |
+| `Procfile`, `requirements.txt`, `runtime.txt`, `.railwayignore` | Railway / Nixpacks build artifacts. |
+| `tools/gen_manifest.py` | Writes `data/manifest.json` so the dashboard can enumerate market files in the browser. |
+| `tools/sync.sh` | Pulls `/app/data` from the live Railway service into local `./data/` for offline dashboard use. |
+| `DASHBOARD_PROMPT.md` | Self-contained prompt I used to generate the dashboard via Claude Design. |
+| `ARTICLE.md` | "What the viral guide left out" — analysis of the original article vs what I actually found. |
+| `BOT_README.md` | The original bot's README, preserved. |
 
 ---
 
-## Installation
+## Run it locally (paper trading, 2 minutes)
+
 ```bash
-git clone https://github.com/alteregoeth-ai/weatherbot
-cd weatherbot
-pip install requests
+git clone https://github.com/0xLeathery/weatherbot-personal
+cd weatherbot-personal
+
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# scan-and-loop, hourly. Ctrl-C to stop.
+python bot_v2.py run
+
+# in another terminal: open the dashboard
+python3 tools/gen_manifest.py
+python3 -m http.server 8000
+# → http://localhost:8000/Dashboard.html
 ```
 
-Create `config.json` in the project folder:
-```json
-{
-  "balance": 10000.0,
-  "max_bet": 20.0,
-  "min_ev": 0.05,
-  "max_price": 0.45,
-  "min_volume": 2000,
-  "min_hours": 2.0,
-  "max_hours": 72.0,
-  "kelly_fraction": 0.25,
-  "max_slippage": 0.03,
-  "scan_interval": 3600,
-  "calibration_min": 30,
-  "vc_key": "YOUR_VISUAL_CROSSING_KEY"
-}
-```
+State persists in `data/`. Run `python bot_v2.py status` or `report` for CLI summaries.
 
-Get a free Visual Crossing API key at visualcrossing.com — used to fetch actual temperatures after market resolution.
+A free [Visual Crossing](https://www.visualcrossing.com/sign-up) API key in `config.json` enables the calibration loop (per-`(city, source)` σ tuning from real post-resolution temperatures). Without it, the bot still trades fine using Open-Meteo + METAR forecasts but can't grade itself.
 
 ---
 
-## Usage
+## Deploy to Railway
+
 ```bash
-python weatherbet.py           # start the bot — scans every hour
-python weatherbet.py status    # balance and open positions
-python weatherbet.py report    # full breakdown of all resolved markets
+# from the project root, with the railway CLI authed
+railway init -n weatherbot
+railway add --service weatherbot \
+  --variables "BALANCE=1000" --variables "MAX_BET=20" --variables "MIN_EV=0.10" \
+  --variables "MAX_PRICE=0.45" --variables "MIN_VOLUME=500" \
+  --variables "KELLY_FRACTION=0.25" --variables "MAX_SLIPPAGE=0.03" \
+  --variables "SCAN_INTERVAL=3600"
+# add a 1GB volume mounted at /app/data via the Railway dashboard
+# (CLI volume create has a known crash bug as of railway 4.40.0)
+railway up
+railway domain  # provisions a *.up.railway.app URL
 ```
 
----
-
-## Data Storage
-
-All data is saved to `data/markets/` — one JSON file per market. Each file contains:
-- Hourly forecast snapshots (ECMWF, HRRR, METAR)
-- Market price history
-- Position details (entry, stop, PnL)
-- Final resolution outcome
-
-This data is used for self-calibration — the bot learns forecast accuracy per city over time and adjusts position sizing accordingly.
+Set `VC_KEY=your-visualcrossing-key` to enable the learning loop. Set `DASH_USER` and `DASH_PASS` to gate the dashboard with HTTP basic auth (omit both for fully public).
 
 ---
 
-## APIs Used
+## What the original viral guide got wrong
 
-| API | Auth | Purpose |
-|-----|------|---------|
-| Open-Meteo | None | ECMWF + HRRR forecasts |
-| Aviation Weather (METAR) | None | Real-time station observations |
-| Polymarket Gamma | None | Market data |
-| Visual Crossing | Free key | Historical temps for resolution |
+Short version (full version in `ARTICLE.md`):
+
+1. **Hermes Agent isn't doing the trading "self-learning."** The forecast calibration loop (`data/calibration.json`, ~50 lines in `bot_v2.py`) is the actual learning signal. It runs without Hermes.
+2. **There is no on-chain code in this bot.** The article's prompts to create a Polygon wallet, fund USDC.e, and approve Polymarket contracts with `max uint256` target functionality that doesn't exist. The bot only places paper bets that update an in-memory balance written to a JSON file.
+3. **The article's `python3 bot_v3.py scan` command refers to a file that doesn't exist** in the repo it points you at. The actual entry point is `python bot_v2.py run`.
+4. **There is no `mode: live` / `mode: paper` config field.** That was invented.
+
+None of which makes the bot bad — the EV + Kelly + multi-source forecast logic is interesting and well-implemented. It just doesn't need a "self-learning AI agent" wrapper to do what it does.
 
 ---
 
-## Disclaimer
+## License
 
-This is not financial advice. Prediction markets carry real risk. Run the simulation thoroughly before committing real capital.
+MIT, inherited from upstream.
