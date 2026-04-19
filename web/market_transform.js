@@ -15,9 +15,10 @@
     var status = classifyMarket(m);
     var isResolved = status === "resolved";
     var isClosed = status === "closed";
-    var pnl = isResolved ? (m.pnl == null ? 0 : m.pnl)
-             : isClosed  ? (pos.pnl == null ? 0 : pos.pnl)
-             : 0;
+    var pnl = isResolved ? (m.pnl == null ? null : m.pnl)
+             : isClosed  ? (pos.pnl == null ? null : pos.pnl)
+             : status === "no_position" ? 0
+             : 0;   // open
     var cost = pos.cost != null ? pos.cost
              : (pos.entry_price != null && pos.shares != null)
                ? pos.entry_price * pos.shares

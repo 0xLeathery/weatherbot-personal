@@ -84,6 +84,21 @@ test("transformMarkets: maps two raw markets", () => {
   assert.equal(out[1].slug, "nyc_2026-04-21");
 });
 
+test("transformMarkets: closed market with null pnl preserves null (not 0)", () => {
+  const raw = [{
+    status: "closed",
+    position: { status: "closed", pnl: null, cost: 20 },
+    resolved_outcome: null, pnl: null,
+    event_end_date: "2026-04-20T12:00:00Z", market_snapshots: [],
+    city: "x", city_name: "X", date: "2026-04-20",
+    unit: "F", station: "X", hours_at_discovery: 12, actual_temp: null,
+    forecast_snapshots: [],
+  }];
+  const out = transformMarkets(raw, ["x.json"]);
+  assert.equal(out[0].status, "closed");
+  assert.equal(out[0].pnl, null);
+});
+
 test("transformMarkets: no_position markets have pnl 0 and cost 0", () => {
   const raw = [{
     status: "closed", position: null, resolved_outcome: null, pnl: null,

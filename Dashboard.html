@@ -1080,7 +1080,10 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
 
   const evScatter = useMemo(() => {
     return resolved
-      .filter((m) => m.position.ev_multiplier != null && m.position.cost > 0)
+      .filter((m) =>
+        m.position.ev_multiplier != null &&
+        m.position.cost > 0 &&
+        typeof m.pnl === "number")
       .map((m) => {
         const ev = m.position.ev_multiplier;
         const realized = m.pnl / m.position.cost;
@@ -1098,6 +1101,7 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
     ];
     return buckets.map((b) => {
       const trades = resolved.filter((m) => {
+        if (typeof m.pnl !== "number") return false;
         const hl = m.hours_at_discovery || m.forecast_snapshots[0]?.hours_left || 0;
         return hl >= b.range[0] && hl < b.range[1];
       });
