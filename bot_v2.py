@@ -411,6 +411,24 @@ def save_state(state):
 # CORE LOGIC
 # =============================================================================
 
+def compute_position_price(outcomes, position):
+    """Return the price of the bucket this position holds, or None.
+
+    The snapshot writer uses this so the dashboard can compute unrealized
+    PnL against the bot's actual bucket (not the top/most-probable bucket,
+    which is what top_price records).
+    """
+    if not position:
+        return None
+    mid = position.get("market_id")
+    if not mid:
+        return None
+    for o in outcomes or []:
+        if o.get("market_id") == mid:
+            return o.get("price")
+    return None
+
+
 def take_forecast_snapshot(city_slug, dates):
     """Fetches forecasts from all sources and returns a snapshot."""
     now_str = datetime.now(timezone.utc).isoformat()
@@ -530,9 +548,10 @@ def scan_and_update():
             # Market price snapshot
             top = max(outcomes, key=lambda x: x["price"]) if outcomes else None
             market_snap = {
-                "ts":       snap.get("ts"),
-                "top_bucket": f"{top['range'][0]}-{top['range'][1]}{unit_sym}" if top else None,
-                "top_price":  top["price"] if top else None,
+                "ts":             snap.get("ts"),
+                "top_bucket":     f"{top['range'][0]}-{top['range'][1]}{unit_sym}" if top else None,
+                "top_price":      top["price"] if top else None,
+                "position_price": compute_position_price(outcomes, mkt.get("position")),
             }
             mkt["market_snapshots"].append(market_snap)
 
