@@ -429,6 +429,20 @@ def compute_position_price(outcomes, position):
     return None
 
 
+def apply_closure_to_state(state, pnl):
+    """Increment wins/losses counters for a closed position.
+
+    Used by both the stop-loss branch and the auto-resolution branch so
+    every realized closure ends up in state.wins or state.losses.
+    """
+    if pnl is None:
+        return
+    if pnl > 0:
+        state["wins"] = state.get("wins", 0) + 1
+    else:
+        state["losses"] = state.get("losses", 0) + 1
+
+
 def take_forecast_snapshot(city_slug, dates):
     """Fetches forecasts from all sources and returns a snapshot."""
     now_str = datetime.now(timezone.utc).isoformat()
@@ -586,6 +600,7 @@ def scan_and_update():
                         pos["exit_price"]   = current_price
                         pos["pnl"]          = pnl
                         pos["status"]       = "closed"
+                        apply_closure_to_state(state, pnl)
                         closed += 1
                         reason = "STOP" if current_price < entry else "TRAILING BE"
                         print(f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
@@ -746,10 +761,7 @@ def scan_and_update():
         mkt["status"]       = "resolved"
         mkt["resolved_outcome"] = "win" if won else "loss"
 
-        if won:
-            state["wins"] += 1
-        else:
-            state["losses"] += 1
+        apply_closure_to_state(state, pnl)
 
         result = "WIN" if won else "LOSS"
         print(f"  [{result}] {mkt['city_name']} {mkt['date']} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
