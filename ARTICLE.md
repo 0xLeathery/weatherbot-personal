@@ -71,7 +71,7 @@ The bot's idea of "trading" is updating a Python `balance` variable and writing 
 
 So the wallet creation, the funding, the four `approve` transactions — they're targeting functionality that doesn't exist in the bot the guide points you at. They will not make the bot start placing real orders. They will only sit there, waiting to do nothing useful.
 
-(Could the bot be modified to actually trade? Sure. But that's a different bot — one that would need an audit before you sign approvals to it.)
+The defense of this is going to be: *"the guide is teaching a general framework for deploying any trading bot via Hermes — swap in a bot that does place orders and the approvals matter."* Sure. But if you swap in a bot that actually trades, you're now signing infinite USDC.e approvals to a bot that hasn't been written yet, hasn't been audited, and isn't the one in the guide. That's a different (worse) problem, not a justification.
 
 ---
 
@@ -79,7 +79,7 @@ So the wallet creation, the funding, the four `approve` transactions — they're
 
 - The guide tells you to run `python3 bot_v3.py scan`. There is no `bot_v3.py` in the repo — only `bot_v1.py` and `bot_v2.py`. The actual command is `python bot_v2.py run`. The README in the repo references `weatherbet.py` as the "current" bot, but that filename also doesn't exist; `bot_v2.py` is what's there.
 - The guide invents a `mode: live` / `mode: paper` config field. The actual `config.json` has no such field. The bot is paper-only by design (its own docstring says so).
-- The headline P&L claims (ColdMath $300 → $219K, RN1 $1.2K → $7.3M) are linked via `?via=following` referral parameters. Those wallets exist; their actual P&L distributions are not the headline numbers.
+- The headline P&L claims (ColdMath $300 → $219K, RN1 $1.2K → $7.3M) are linked with `?via=following` referral parameters on every link.
 
 These are quibbles individually. Together with the wallet/approval section, the pattern is: copy the article structure, embellish the math, point at a real repo that doesn't quite do what you said it does.
 
