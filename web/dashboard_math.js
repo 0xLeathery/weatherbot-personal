@@ -17,12 +17,26 @@ export function pickCurrentPrice(market) {
   return { price: entry, stale: true };
 }
 
+export function computeReservedCost(markets) {
+  let total = 0;
+  for (const m of markets || []) {
+    if (m && m.status === "open") {
+      total += m.position?.cost || 0;
+    }
+  }
+  return total;
+}
+
+export function computeEquityMark({ cash, reserved, unrealized }) {
+  return (cash || 0) + (reserved || 0) + (unrealized || 0);
+}
+
 // In the browser, expose as a global so the React/Babel script (which is
 // NOT a module) can call DashboardMath.pickCurrentPrice without an import.
 // In Node tests, `globalThis.window` is undefined so this is a no-op.
 if (typeof globalThis !== "undefined" && typeof globalThis.window !== "undefined") {
   globalThis.window.DashboardMath = Object.assign(
     globalThis.window.DashboardMath || {},
-    { pickCurrentPrice }
+    { pickCurrentPrice, computeReservedCost, computeEquityMark }
   );
 }

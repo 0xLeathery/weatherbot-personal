@@ -2,7 +2,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { pickCurrentPrice } from "../web/dashboard_math.js";
+import {
+  pickCurrentPrice,
+  computeReservedCost,
+  computeEquityMark,
+} from "../web/dashboard_math.js";
 
 test("pickCurrentPrice returns the newest snapshot's position_price", () => {
   const market = {
@@ -43,4 +47,28 @@ test("pickCurrentPrice falls back to entry_price when no snapshot has it", () =>
 test("pickCurrentPrice falls back when market_snapshots is empty", () => {
   const market = { position: { entry_price: 0.2 }, market_snapshots: [] };
   assert.deepEqual(pickCurrentPrice(market), { price: 0.2, stale: true });
+});
+
+test("computeReservedCost sums cost over open markets only", () => {
+  const markets = [
+    { status: "open",     position: { cost: 20 } },
+    { status: "open",     position: { cost: 15 } },
+    { status: "closed",   position: { cost: 25 } },
+    { status: "resolved", position: { cost: 30 } },
+  ];
+  assert.equal(computeReservedCost(markets), 35);
+});
+
+test("computeReservedCost ignores positions with missing cost", () => {
+  const markets = [
+    { status: "open", position: {} },
+    { status: "open", position: { cost: 10 } },
+  ];
+  assert.equal(computeReservedCost(markets), 10);
+});
+
+test("computeEquityMark adds cash, reserved, and unrealized", () => {
+  assert.equal(computeEquityMark({ cash: 680.93, reserved: 300, unrealized: 0 }), 980.93);
+  assert.equal(computeEquityMark({ cash: 680.93, reserved: 300, unrealized: -42.5 }), 938.43);
+  assert.equal(computeEquityMark({ cash: 1000, reserved: 0, unrealized: 0 }), 1000);
 });
