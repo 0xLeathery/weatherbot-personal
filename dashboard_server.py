@@ -34,7 +34,7 @@ PASS = os.environ.get("DASH_PASS", "")
 PORT = int(os.environ.get("PORT", "8000"))
 
 # Only paths matching one of these prefixes are served. Everything else 404s.
-ALLOWED_PREFIXES = ("/Dashboard.html", "/data/", "/favicon.ico")
+ALLOWED_PREFIXES = ("/Dashboard.html", "/data/", "/web/", "/favicon.ico")
 MANIFEST_INTERVAL = 60  # seconds
 
 
