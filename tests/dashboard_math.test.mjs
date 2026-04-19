@@ -1,13 +1,18 @@
 // tests/dashboard_math.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 
-import {
+// dashboard_math.js is a classic script (UMD) so it loads synchronously in the
+// browser without a module/defer race vs. Babel standalone. In Node we pull it
+// in via CommonJS require.
+const require = createRequire(import.meta.url);
+const {
   pickCurrentPrice,
   computeReservedCost,
   computeEquityMark,
   deriveStateStats,
-} from "../web/dashboard_math.js";
+} = require("../web/dashboard_math.js");
 
 test("pickCurrentPrice returns the newest snapshot's position_price", () => {
   const market = {

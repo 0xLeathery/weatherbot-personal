@@ -1,62 +1,80 @@
 // web/dashboard_math.js
 // Pure math helpers for Dashboard.html.
-// Loaded from Dashboard.html via <script type="module">.
-// Also importable from Node tests via `import { ... } from ".../dashboard_math.js"`.
-//
-// Keep this file dependency-free — no imports.
+// Classic script so it's available to the inline Babel block synchronously —
+// no module/defer race with Babel standalone's DOMContentLoaded handler.
+// Node tests load this via createRequire() in dashboard_math.test.mjs.
 
-export function pickCurrentPrice(market) {
-  const entry = market?.position?.entry_price;
-  const snaps = market?.market_snapshots || [];
-  for (let i = snaps.length - 1; i >= 0; i--) {
-    const s = snaps[i];
-    if (s && s.position_price != null) {
-      return { price: s.position_price, stale: false };
+(function (global) {
+  function pickCurrentPrice(market) {
+    var entry = market && market.position && market.position.entry_price;
+    var snaps = (market && market.market_snapshots) || [];
+    for (var i = snaps.length - 1; i >= 0; i--) {
+      var s = snaps[i];
+      if (s && s.position_price != null) {
+        return { price: s.position_price, stale: false };
+      }
     }
+    return { price: entry, stale: true };
   }
-  return { price: entry, stale: true };
-}
 
-export function computeReservedCost(markets) {
-  let total = 0;
-  for (const m of markets || []) {
-    if (m && m.status === "open") {
-      total += m.position?.cost || 0;
+  function computeReservedCost(markets) {
+    var total = 0;
+    for (var i = 0, xs = markets || []; i < xs.length; i++) {
+      var m = xs[i];
+      if (m && m.status === "open") {
+        total += (m.position && m.position.cost) || 0;
+      }
     }
+    return total;
   }
-  return total;
-}
 
-export function computeEquityMark({ cash, reserved, unrealized }) {
-  return (cash || 0) + (reserved || 0) + (unrealized || 0);
-}
+  function computeEquityMark(args) {
+    var cash = (args && args.cash) || 0;
+    var reserved = (args && args.reserved) || 0;
+    var unrealized = (args && args.unrealized) || 0;
+    return cash + reserved + unrealized;
+  }
 
-export function deriveStateStats({ markets, equity, startingBalance }) {
-  let wins = 0, losses = 0, openCount = 0, resolvedCount = 0;
-  for (const m of markets || []) {
-    if (m.status === "open") { openCount++; continue; }
-    resolvedCount++;
-    if (m.pnl > 0) wins++;
-    else losses++;             // ties count as losses — matches backfill
+  function deriveStateStats(args) {
+    var markets = (args && args.markets) || [];
+    var equity = (args && args.equity) || [];
+    var startingBalance = (args && args.startingBalance) || 0;
+    var wins = 0, losses = 0, openCount = 0, resolvedCount = 0;
+    for (var i = 0; i < markets.length; i++) {
+      var m = markets[i];
+      if (m.status === "open") { openCount++; continue; }
+      resolvedCount++;
+      if (m.pnl > 0) wins++;
+      else losses++; // ties count as losses — matches backfill
+    }
+    var peak = startingBalance;
+    for (var j = 0; j < equity.length; j++) {
+      var e = equity[j];
+      if (e && typeof e.balance === "number" && e.balance > peak) peak = e.balance;
+    }
+    return {
+      wins: wins,
+      losses: losses,
+      openCount: openCount,
+      resolvedCount: resolvedCount,
+      totalTrades: openCount + resolvedCount,
+      peakBalance: peak,
+    };
   }
-  let peak = startingBalance || 0;
-  for (const e of equity || []) {
-    if (e && typeof e.balance === "number" && e.balance > peak) peak = e.balance;
-  }
-  return {
-    wins, losses,
-    openCount, resolvedCount,
-    totalTrades: openCount + resolvedCount,
-    peakBalance: peak,
+
+  var api = {
+    pickCurrentPrice: pickCurrentPrice,
+    computeReservedCost: computeReservedCost,
+    computeEquityMark: computeEquityMark,
+    deriveStateStats: deriveStateStats,
   };
-}
 
-// In the browser, expose as a global so the React/Babel script (which is
-// NOT a module) can call DashboardMath.pickCurrentPrice without an import.
-// In Node tests, `globalThis.window` is undefined so this is a no-op.
-if (typeof globalThis !== "undefined" && typeof globalThis.window !== "undefined") {
-  globalThis.window.DashboardMath = Object.assign(
-    globalThis.window.DashboardMath || {},
-    { pickCurrentPrice, computeReservedCost, computeEquityMark, deriveStateStats }
-  );
-}
+  // Browser: attach to window so Babel/React block can call DashboardMath.*.
+  if (typeof window !== "undefined") {
+    window.DashboardMath = api;
+  }
+  // Node (CommonJS): export the same API for tests via createRequire().
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = api;
+  }
+})(typeof globalThis !== "undefined" ? globalThis : this);
