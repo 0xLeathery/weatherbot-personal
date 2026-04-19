@@ -209,3 +209,6 @@ __marimo__/
 # Bot runtime state — lives on Railway volume in production
 data/
 bot.log
+
+# Worktrees
+.worktrees/
