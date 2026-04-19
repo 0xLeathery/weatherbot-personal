@@ -508,6 +508,7 @@ body {
   <div id="root"></div>
 
   <script src="web/dashboard_math.js"></script>
+  <script src="web/market_transform.js"></script>
 
   <script type="text/babel" data-presets="react">
 // ============================================================================
@@ -575,65 +576,13 @@ async function loadData() {
     ),
   ]);
 
-  // --- transform markets ---
-  const markets = [];
+  const markets = MarketTransform.transformMarkets(rawMarkets, manifest.markets);
   let lastTickTs = null;
-
-  for (let i = 0; i < rawMarkets.length; i++) {
-    const m = rawMarkets[i];
-    if (!m) continue;
-    if (!m.position) continue; // skipped market — bot considered but didn't enter
-
-    const pos = m.position;
-    const unit = m.unit || "F";
-    const bucket = `${pos.bucket_low}-${pos.bucket_high}°${unit}`;
-    const isResolved = m.resolved_outcome != null;
-    const isClosed = pos.status === "closed" && !isResolved;
-    const status = isResolved ? "resolved" : (isClosed ? "closed" : "open");
-
-    const realizedPnl = isResolved ? (m.pnl ?? 0) : (isClosed ? (pos.pnl ?? 0) : 0);
-    const cost = pos.cost ?? (pos.entry_price * (pos.shares ?? 0));
-
-    // Track the most-recent timestamp across snapshots for the "last tick" indicator
-    const snaps = m.market_snapshots || [];
-    for (const s of snaps) {
+  for (const m of markets) {
+    for (const s of m.market_snapshots) {
       if (s.ts && (!lastTickTs || s.ts > lastTickTs)) lastTickTs = s.ts;
     }
-
-    markets.push({
-      slug: manifest.markets[i].replace(/\.json$/, ""),
-      city: m.city,
-      city_name: m.city_name,
-      date: m.date,
-      unit,
-      station: m.station,
-      event_end_date: m.event_end_date,
-      hours_at_discovery: m.hours_at_discovery,
-      status,
-      position: {
-        entry_price: pos.entry_price,
-        shares: pos.shares,
-        cost,
-        bucket,
-        ev_multiplier: pos.ev,            // bot's predicted EV multiplier (e.g. 5.9x)
-        forecast_src: pos.forecast_src,
-        forecast_temp: pos.forecast_temp,
-        sigma: pos.sigma,
-        opened_at: pos.opened_at,
-        exit_price: pos.exit_price,
-        close_reason: pos.close_reason,
-        closed_at: pos.closed_at,
-      },
-      pnl: realizedPnl,
-      actual_temp: m.actual_temp,
-      resolved_outcome: m.resolved_outcome,
-      forecast_snapshots: m.forecast_snapshots || [],
-      market_snapshots: snaps,
-    });
   }
-
-  // chronological by event end
-  markets.sort((a, b) => new Date(a.event_end_date) - new Date(b.event_end_date));
 
   // --- equity curve from chronologically-realized PnL ---
   const startingBalance = state.starting_balance ?? 1000;
