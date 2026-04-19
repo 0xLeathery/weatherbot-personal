@@ -14,7 +14,7 @@
         return { price: s.position_price, stale: false };
       }
     }
-    return { price: entry, stale: true };
+    return { price: entry != null ? entry : null, stale: true };
   }
 
   function computeReservedCost(markets) {
@@ -29,23 +29,27 @@
   }
 
   function computeEquityMark(args) {
-    var cash = (args && args.cash) || 0;
-    var reserved = (args && args.reserved) || 0;
-    var unrealized = (args && args.unrealized) || 0;
-    return cash + reserved + unrealized;
+    function num(v) {
+      var n = (v == null) ? 0 : v;
+      if (!isFinite(n)) throw new Error("computeEquityMark: non-finite input");
+      return n;
+    }
+    return num(args && args.cash) + num(args && args.reserved) + num(args && args.unrealized);
   }
 
   function deriveStateStats(args) {
     var markets = (args && args.markets) || [];
     var equity = (args && args.equity) || [];
     var startingBalance = (args && args.startingBalance) || 0;
-    var wins = 0, losses = 0, openCount = 0, resolvedCount = 0;
+    var wins = 0, losses = 0, openCount = 0, noPositionCount = 0, resolvedCount = 0;
     for (var i = 0; i < markets.length; i++) {
       var m = markets[i];
       if (m.status === "open") { openCount++; continue; }
+      if (m.status === "no_position") { noPositionCount++; continue; }
       resolvedCount++;
+      if (m.pnl == null) continue;
       if (m.pnl > 0) wins++;
-      else losses++; // ties count as losses — matches backfill
+      else losses++;
     }
     var peak = startingBalance;
     for (var j = 0; j < equity.length; j++) {
@@ -56,8 +60,9 @@
       wins: wins,
       losses: losses,
       openCount: openCount,
+      noPositionCount: noPositionCount,
       resolvedCount: resolvedCount,
-      totalTrades: openCount + resolvedCount,
+      totalTrades: wins + losses,
       peakBalance: peak,
     };
   }
