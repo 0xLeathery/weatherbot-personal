@@ -507,6 +507,8 @@ body {
 <body>
   <div id="root"></div>
 
+  <script type="module" src="web/dashboard_math.js"></script>
+
   <script type="text/babel" data-presets="react">
 // ============================================================================
 // weatherbot dashboard — reads from ./data/ (state.json, calibration.json,
@@ -665,13 +667,16 @@ async function loadData() {
   }
 
   // --- normalized state ---
+  const derived = DashboardMath.deriveStateStats({ markets, equity, startingBalance });
   const normState = {
     balance: state.balance ?? startingBalance,
     starting_balance: startingBalance,
-    total_trades: state.total_trades ?? markets.length,
-    wins: state.wins ?? 0,
-    losses: state.losses ?? 0,
-    peak_balance: state.peak_balance ?? startingBalance,
+    total_trades: derived.totalTrades,
+    resolved_count: derived.resolvedCount,
+    open_count: derived.openCount,
+    wins: derived.wins,
+    losses: derived.losses,
+    peak_balance: derived.peakBalance,
     last_updated: lastTickTs || new Date().toISOString(),
   };
 
@@ -1049,14 +1054,19 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
   const resolved = data.markets.filter((m) => m.status === "resolved" || m.status === "closed");
 
   const openEnriched = open.map((m) => {
-    const last = m.market_snapshots[m.market_snapshots.length - 1];
-    const currentPrice = last ? last.top_price : m.position.entry_price;
+    const { price: currentPrice, stale: priceStale } = DashboardMath.pickCurrentPrice(m);
     const unrealized = (currentPrice - m.position.entry_price) * (m.position.shares || 0);
     const hoursLeft = Math.max(0, (new Date(m.event_end_date) - Date.now()) / 3600000);
-    return { ...m, currentPrice, unrealized, hoursLeft };
+    return { ...m, currentPrice, unrealized, hoursLeft, priceStale };
   });
 
   const unrealizedTotal = openEnriched.reduce((s, m) => s + m.unrealized, 0);
+  const reservedCost = DashboardMath.computeReservedCost(data.markets);
+  const equityMark = DashboardMath.computeEquityMark({
+    cash: data.state.balance,
+    reserved: reservedCost,
+    unrealized: unrealizedTotal,
+  });
   const totalReturn = ((data.state.balance - data.state.starting_balance) / data.state.starting_balance) * 100;
   const winRate = data.state.total_trades ? (data.state.wins / Math.max(1, data.state.wins + data.state.losses)) * 100 : 0;
   const maxDD = useMemo(() => {
@@ -1220,15 +1230,33 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
 
       {/* ===== KPI STRIP ===== */}
       <section className="kpi-strip">
-        <KpiTile label="Balance" value={fmtUSD(data.state.balance)} sub={`peak ${fmtUSD(data.state.peak_balance, 0)}`} />
+        <KpiTile
+          label="Cash"
+          value={fmtUSD(data.state.balance)}
+          sub={`${fmtUSD(reservedCost, 0)} reserved in ${open.length} open`}
+        />
+        <KpiTile
+          label="Equity"
+          value={fmtUSD(equityMark)}
+          sub={`peak ${fmtUSD(data.state.peak_balance, 0)} · mark-to-market`}
+          accent={equityMark >= data.state.starting_balance ? "var(--pos)" : "var(--neg)"}
+        />
         <KpiTile
           label="Return"
           value={fmtPct(totalReturn, 2)}
           sub={`from ${fmtUSD(data.state.starting_balance, 0)}`}
           accent={totalReturn >= 0 ? "var(--pos)" : "var(--neg)"}
         />
-        <KpiTile label="Total trades" value={data.state.total_trades} sub={`${data.state.wins}W · ${data.state.losses}L`} />
-        <KpiTile label="Win rate" value={data.state.wins + data.state.losses ? `${winRate.toFixed(1)}%` : "—"} sub={`of ${data.state.wins + data.state.losses} resolved`} />
+        <KpiTile
+          label="Total trades"
+          value={data.state.total_trades}
+          sub={`${data.state.resolved_count} resolved · ${data.state.open_count} open`}
+        />
+        <KpiTile
+          label="Win rate"
+          value={data.state.wins + data.state.losses ? `${winRate.toFixed(1)}%` : "—"}
+          sub={`${data.state.wins}W · ${data.state.losses}L of ${data.state.wins + data.state.losses}`}
+        />
         <KpiTile label="Open positions" value={open.length} sub={`${openEnriched.filter((m) => m.hoursLeft < 6).length} <6h`} />
         <KpiTile
           label="Unrealized PnL"
@@ -1243,9 +1271,9 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
       {sections.equity && (
         <section className="card">
           <div className="card-head">
-            <div className="card-title">Equity curve</div>
+            <div className="card-title">Equity curve <span className="card-count mono">realized only</span></div>
             <div className="card-meta mono">
-              {data.equity.length} points · {fmtDate(data.equity[0]?.ts)} → {fmtDate(data.equity[data.equity.length - 1]?.ts)}
+              {data.equity.length} points · {fmtDate(data.equity[0]?.ts)} → {fmtDate(data.equity[data.equity.length - 1]?.ts)} · open positions not marked
             </div>
           </div>
           <EquityCurve equity={data.equity} state={data.state} accent={accent === "grn" ? "grn" : "accent"} filled={chartStyle === "filled"} />
@@ -1285,6 +1313,9 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
                       <span className={m.currentPrice >= m.position.entry_price ? "txt-pos" : "txt-neg"}>
                         {m.currentPrice.toFixed(3)}
                       </span>
+                      {m.priceStale && (
+                        <span className="muted" title="No snapshot yet records this bucket's price — falling back to entry."> ·stale</span>
+                      )}
                     </td>
                     <td className={`mono num ${m.unrealized >= 0 ? "txt-pos" : "txt-neg"}`}>
                       {fmtUSD(m.unrealized)}
