@@ -36,4 +36,12 @@ fi
 # data/ is a Railway-mounted volume in production; ensure it exists locally too
 mkdir -p data data/markets
 
+# Spawn the dashboard server in the background. It serves Dashboard.html and
+# data/ over HTTP basic auth and keeps data/manifest.json fresh. If the bot
+# (foreground) exits, the container exits and the dashboard goes with it,
+# which is fine — Railway restarts the container.
+python3 dashboard_server.py &
+DASH_PID=$!
+trap 'kill $DASH_PID 2>/dev/null || true' EXIT
+
 exec python bot_v2.py run
