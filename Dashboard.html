@@ -1026,8 +1026,11 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
     reserved: reservedCost,
     unrealized: unrealizedTotal,
   });
-  const totalReturn = ((data.state.balance - data.state.starting_balance) / data.state.starting_balance) * 100;
-  const winRate = data.state.total_trades ? (data.state.wins / Math.max(1, data.state.wins + data.state.losses)) * 100 : 0;
+  const totalReturn = data.state.starting_balance > 0
+    ? ((data.state.balance - data.state.starting_balance) / data.state.starting_balance) * 100
+    : 0;
+  const totalTrades = data.state.wins + data.state.losses;
+  const winRate = totalTrades > 0 ? (data.state.wins / totalTrades) * 100 : 0;
   const maxDD = useMemo(() => {
     if (data.equity.length < 2) return 0;
     let peak = data.equity[0].balance, worst = 0;
@@ -1212,12 +1215,12 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
         />
         <KpiTile
           label="Total trades"
-          value={data.state.total_trades}
+          value={totalTrades}
           sub={`${data.state.resolved_count} resolved · ${data.state.open_count} open`}
         />
         <KpiTile
           label="Win rate"
-          value={data.state.wins + data.state.losses ? `${winRate.toFixed(1)}%` : "—"}
+          value={totalTrades > 0 ? `${winRate.toFixed(1)}%` : "—"}
           sub={`${data.state.wins}W · ${data.state.losses}L of ${data.state.wins + data.state.losses}`}
         />
         <KpiTile label="Open positions" value={open.length} sub={`${openEnriched.filter((m) => m.hoursLeft < 6).length} <6h`} />
