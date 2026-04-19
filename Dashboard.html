@@ -620,12 +620,18 @@ async function loadData() {
   const normState = {
     balance: state.balance ?? startingBalance,
     starting_balance: startingBalance,
-    total_trades: derived.totalTrades,
+    total_trades: derived.totalTrades,        // = wins + losses
     resolved_count: derived.resolvedCount,
     open_count: derived.openCount,
+    no_position_count: derived.noPositionCount,
     wins: derived.wins,
     losses: derived.losses,
-    peak_balance: derived.peakBalance,
+    // Trust the higher of server peak vs. client-rebuilt — server has
+    // historical closures that the current manifest may have pruned.
+    peak_balance: Math.max(
+      (typeof state.peak_balance === "number") ? state.peak_balance : 0,
+      derived.peakBalance,
+    ),
     last_updated: lastTickTs || new Date().toISOString(),
   };
 
@@ -1004,7 +1010,11 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
 
   const openEnriched = open.map((m) => {
     const { price: currentPrice, stale: priceStale } = DashboardMath.pickCurrentPrice(m);
-    const unrealized = (currentPrice - m.position.entry_price) * (m.position.shares || 0);
+    const entry = m.position && m.position.entry_price;
+    const shares = (m.position && m.position.shares) || 0;
+    const unrealized = (currentPrice != null && entry != null)
+      ? (currentPrice - entry) * shares
+      : 0;
     const hoursLeft = Math.max(0, (new Date(m.event_end_date) - Date.now()) / 3600000);
     return { ...m, currentPrice, unrealized, hoursLeft, priceStale };
   });
