@@ -55,6 +55,16 @@ test("pickCurrentPrice falls back when market_snapshots is empty", () => {
   assert.deepEqual(pickCurrentPrice(market), { price: 0.2, stale: true });
 });
 
+test("pickCurrentPrice returns {price: null, stale: true} when no entry and no snapshots", () => {
+  const market = { position: null, market_snapshots: [] };
+  assert.deepEqual(pickCurrentPrice(market), { price: null, stale: true });
+});
+
+test("pickCurrentPrice returns {price: null, stale: true} when position is missing", () => {
+  const market = { market_snapshots: [{ ts: "t1", position_price: null }] };
+  assert.deepEqual(pickCurrentPrice(market), { price: null, stale: true });
+});
+
 test("computeReservedCost sums cost over open markets only", () => {
   const markets = [
     { status: "open",     position: { cost: 20 } },
@@ -79,25 +89,27 @@ test("computeEquityMark adds cash, reserved, and unrealized", () => {
   assert.equal(computeEquityMark({ cash: 1000, reserved: 0, unrealized: 0 }), 1000);
 });
 
-test("deriveStateStats counts W/L from pnl sign and totals by status", () => {
+test("deriveStateStats: wins = pnl>0, losses = pnl<=0, null pnl is skipped", () => {
   const markets = [
-    { status: "open",     pnl: 0 },
-    { status: "open",     pnl: 0 },
-    { status: "closed",   pnl: -5 },
-    { status: "closed",   pnl: -3 },
-    { status: "resolved", pnl: 12 },
-    { status: "resolved", pnl: -7 },
-    { status: "resolved", pnl: 0 },   // tie -> loss
+    { status: "open",        pnl: null },
+    { status: "open",        pnl: null },
+    { status: "no_position", pnl: 0 },
+    { status: "closed",      pnl: -5 },
+    { status: "closed",      pnl: null },
+    { status: "resolved",    pnl: 12 },
+    { status: "resolved",    pnl: -7 },
+    { status: "resolved",    pnl: 0 },
   ];
   const equity = [
     { balance: 1000 }, { balance: 1020 }, { balance: 990 }, { balance: 1055 },
   ];
   const stats = deriveStateStats({ markets, equity, startingBalance: 1000 });
   assert.equal(stats.wins, 1);
-  assert.equal(stats.losses, 4);
+  assert.equal(stats.losses, 3);
   assert.equal(stats.openCount, 2);
+  assert.equal(stats.noPositionCount, 1);
   assert.equal(stats.resolvedCount, 5);
-  assert.equal(stats.totalTrades, 7);
+  assert.equal(stats.totalTrades, 4);
   assert.equal(stats.peakBalance, 1055);
 });
 
@@ -107,4 +119,20 @@ test("deriveStateStats peak is at least starting balance when no trades", () => 
   assert.equal(stats.totalTrades, 0);
   assert.equal(stats.wins, 0);
   assert.equal(stats.losses, 0);
+});
+
+test("computeEquityMark treats missing args as 0", () => {
+  assert.equal(computeEquityMark({}), 0);
+  assert.equal(computeEquityMark({ cash: 500 }), 500);
+});
+
+test("computeEquityMark throws on NaN input instead of silently swallowing it", () => {
+  assert.throws(
+    () => computeEquityMark({ cash: 100, reserved: 0, unrealized: NaN }),
+    /computeEquityMark: non-finite input/,
+  );
+  assert.throws(
+    () => computeEquityMark({ cash: NaN, reserved: 0, unrealized: 0 }),
+    /computeEquityMark: non-finite input/,
+  );
 });
