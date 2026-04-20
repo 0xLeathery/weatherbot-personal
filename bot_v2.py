@@ -139,7 +139,7 @@ def get_sigma(city_slug, source="ecmwf"):
 
 def run_calibration(markets):
     """Recalculates sigma from resolved markets."""
-    resolved = [m for m in markets if m.get("resolved") and m.get("actual_temp") is not None]
+    resolved = [m for m in markets if m.get("actual_temp") is not None]
     cal = load_cal()
     updated = []
 
@@ -148,10 +148,10 @@ def run_calibration(markets):
             group = [m for m in resolved if m["city"] == city]
             errors = []
             for m in group:
-                snap = next((s for s in reversed(m.get("forecast_snapshots", []))
-                             if s["source"] == source), None)
-                if snap and snap.get("temp") is not None:
-                    errors.append(abs(snap["temp"] - m["actual_temp"]))
+                vals = [s.get(source) for s in m.get("forecast_snapshots", [])
+                        if s.get(source) is not None]
+                if vals:
+                    errors.append(abs(vals[-1] - m["actual_temp"]))
             if len(errors) < CALIBRATION_MIN:
                 continue
             mae  = sum(errors) / len(errors)
@@ -735,7 +735,19 @@ def scan_and_update():
 
         print("ok")
 
-    # --- AUTO-RESOLUTION ---
+    # --- AUTO-RESOLUTION PASS 1: fetch actual temps for calibration ---
+    for mkt in load_all_markets():
+        if mkt.get("actual_temp") is not None:
+            continue
+        if mkt["status"] == "open":
+            continue  # market still live
+        temp = get_actual_temp(mkt["city"], mkt["date"])
+        if temp is not None:
+            mkt["actual_temp"] = temp
+            save_market(mkt)
+            time.sleep(0.2)
+
+    # --- AUTO-RESOLUTION PASS 2: close open positions via Polymarket ---
     for mkt in load_all_markets():
         if mkt["status"] == "resolved":
             continue
@@ -782,9 +794,9 @@ def scan_and_update():
     state["peak_balance"] = max(state.get("peak_balance", balance), balance)
     save_state(state)
 
-    # Run calibration if enough data collected
+    # Run calibration if enough markets have actual_temp data
     all_mkts = load_all_markets()
-    resolved_count = len([m for m in all_mkts if m["status"] == "resolved"])
+    resolved_count = len([m for m in all_mkts if m.get("actual_temp") is not None])
     if resolved_count >= CALIBRATION_MIN:
         global _cal
         _cal = run_calibration(all_mkts)
