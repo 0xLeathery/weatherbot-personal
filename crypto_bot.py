@@ -218,6 +218,26 @@ def hours_to_resolution(resolution_date_iso):
         print(f"Error parsing resolution date {resolution_date_iso}: {e}")
         return 24
 
+def check_market_resolved(market_id):
+    """Returns True (YES won), False (NO won), None (still open or unclear)."""
+    try:
+        url = f"https://gamma-api.polymarket.com/markets/{market_id}"
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("closed", False):
+            return None
+        prices = json.loads(data.get("outcomePrices", "[0.5,0.5]"))
+        yes_price = float(prices[0])
+        if yes_price >= 0.95:
+            return True
+        if yes_price <= 0.05:
+            return False
+        return None
+    except Exception as e:
+        print(f"Error checking resolution {market_id}: {e}")
+        return None
+
 # =============================================================================
 # POSITION STORAGE
 # =============================================================================

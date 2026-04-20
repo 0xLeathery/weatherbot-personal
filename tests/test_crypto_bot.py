@@ -37,3 +37,44 @@ def test_load_position_returns_existing_for_duplicate_check(tmp_path, monkeypatc
     # Non-None return value is what the duplicate guard checks
     assert crypto_bot.load_position("mkt-dup") is not None
     assert crypto_bot.load_position("mkt-new") is None
+
+from unittest.mock import patch, MagicMock
+
+def _mock_gamma_response(closed, yes_price):
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "closed": closed,
+        "outcomePrices": f"[{yes_price}, {1 - yes_price}]",
+    }
+    mock_resp.raise_for_status.return_value = None
+    return mock_resp
+
+def test_check_market_resolved_still_open():
+    with patch("crypto_bot.requests.get") as mock_get:
+        mock_get.return_value = _mock_gamma_response(closed=False, yes_price=0.55)
+        result = crypto_bot.check_market_resolved("mkt-open")
+    assert result is None
+
+def test_check_market_resolved_yes_wins():
+    with patch("crypto_bot.requests.get") as mock_get:
+        mock_get.return_value = _mock_gamma_response(closed=True, yes_price=0.98)
+        result = crypto_bot.check_market_resolved("mkt-win")
+    assert result is True
+
+def test_check_market_resolved_no_wins():
+    with patch("crypto_bot.requests.get") as mock_get:
+        mock_get.return_value = _mock_gamma_response(closed=True, yes_price=0.02)
+        result = crypto_bot.check_market_resolved("mkt-loss")
+    assert result is False
+
+def test_check_market_resolved_ambiguous():
+    with patch("crypto_bot.requests.get") as mock_get:
+        mock_get.return_value = _mock_gamma_response(closed=True, yes_price=0.50)
+        result = crypto_bot.check_market_resolved("mkt-ambig")
+    assert result is None
+
+def test_check_market_resolved_api_error():
+    with patch("crypto_bot.requests.get") as mock_get:
+        mock_get.side_effect = Exception("timeout")
+        result = crypto_bot.check_market_resolved("mkt-err")
+    assert result is None
