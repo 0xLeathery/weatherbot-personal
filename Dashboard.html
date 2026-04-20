@@ -660,6 +660,32 @@ async function loadData() {
   };
 }
 
+async function loadCryptoData() {
+  const base = "./data/crypto";
+  let manifest;
+  try {
+    manifest = await fetch(`${base}/manifest.json`).then(r => r.json());
+  } catch (_) {
+    return { state: null, positions: [], manifest_generated_at: null };
+  }
+  const [stateData, ...posResults] = await Promise.all([
+    manifest.state
+      ? fetch(`${base}/${manifest.state}`).then(r => r.json()).catch(() => null)
+      : Promise.resolve(null),
+    ...(manifest.positions || []).map(f =>
+      fetch(`${base}/positions/${f}`).then(r => r.json()).catch(() => null)
+    ),
+  ]);
+  return {
+    state: stateData || {
+      balance: 1000, starting_balance: 1000,
+      wins: 0, losses: 0, total_trades: 0, peak_balance: 1000,
+    },
+    positions: posResults.filter(Boolean),
+    manifest_generated_at: manifest.generated_at,
+  };
+}
+
 // ============================================================================
 // CHART PRIMITIVES (hand-rolled SVG)
 // ============================================================================
@@ -992,6 +1018,7 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState({ key: "hoursLeft", dir: "asc" });
   const [sortResolved, setSortResolved] = useState({ key: "ts", dir: "desc" });
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem("wb.tab") || "weather");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1187,6 +1214,20 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
           <button className="btn-ghost" onClick={() => setTweaksOpen((v) => !v)}>◎ Tweaks</button>
         </div>
       </header>
+
+      <div className="tab-bar" style={{ display: "flex", gap: "8px", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+        <button onClick={() => { setActiveTab("weather"); localStorage.setItem("wb.tab", "weather"); }}
+                style={{ padding: "8px 16px", background: activeTab === "weather" ? "var(--accent)" : "transparent", color: activeTab === "weather" ? "#000" : "inherit", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: activeTab === "weather" ? "600" : "400" }}>
+          Weather
+        </button>
+        <button onClick={() => { setActiveTab("crypto"); localStorage.setItem("wb.tab", "crypto"); }}
+                style={{ padding: "8px 16px", background: activeTab === "crypto" ? "var(--accent)" : "transparent", color: activeTab === "crypto" ? "#000" : "inherit", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: activeTab === "crypto" ? "600" : "400" }}>
+          Crypto
+        </button>
+      </div>
+
+      {activeTab === "weather" && (
+      <>
 
       {fetchError && (
         <div className="card" style={{ borderColor: "var(--neg)", color: "var(--neg)" }}>
@@ -1486,6 +1527,18 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
           </>
         )}
       </footer>
+
+      </>
+      )}
+
+      {activeTab === "crypto" && (
+      <>
+      <div style={{ padding: "16px", color: "var(--text-muted)" }}>
+        <p><strong>Crypto Trading</strong> - Coming soon</p>
+        <p>Real-time Polymarket crypto price predictions using 15-minute candle data.</p>
+      </div>
+      </>
+      )}
 
       {/* ===== TWEAKS PANEL ===== */}
       {tweaksOpen && (
