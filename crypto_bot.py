@@ -13,8 +13,6 @@ import time
 import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-import subprocess
-import signal
 
 # =============================================================================
 # PATHS & CONFIG
@@ -53,6 +51,7 @@ KELLY_FRACTION = CONFIG["kelly_fraction"]
 MAX_PRICE = CONFIG["max_price"]
 MIN_VOLUME = CONFIG["min_volume"]
 SCAN_INTERVAL = CONFIG["scan_interval"]
+MONITOR_INTERVAL = 300  # seconds between resolution checks between scans
 CANDLE_INTERVAL = CONFIG["candle_interval"]
 CANDLE_LIMIT = CONFIG["candle_limit"]
 ASSETS = CONFIG["assets"]
@@ -355,9 +354,11 @@ def apply_closure_to_state(state, pnl):
 # =============================================================================
 
 def scan_and_update():
-    """Main scan cycle: fetch candles, find markets, evaluate EV, enter/close positions."""
+    """Main scan cycle: settle open positions, then fetch candles and open new ones."""
     print(f"\n[{datetime.now(timezone.utc).isoformat()}] Scanning crypto markets...")
     state = load_state()
+    settle_positions(state)
+    save_state(state)
     balance = state["balance"]
 
     for asset in ASSETS:
@@ -456,22 +457,20 @@ def regen_manifest():
     MANIFEST_FILE.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def run_loop():
-    """Main loop: scan every SCAN_INTERVAL, regenerate manifest every 60s."""
-    print(f"Starting crypto bot loop (scan every {SCAN_INTERVAL}s)...")
-
-    manifest_tick = 0
+    """Main loop: full scan every SCAN_INTERVAL, resolution check every MONITOR_INTERVAL."""
+    print(f"Starting crypto bot (scan every {SCAN_INTERVAL}s, monitor every {MONITOR_INTERVAL}s)...")
     try:
         while True:
-            try:
-                scan_and_update()
-            except Exception as e:
-                print(f"Scan error: {e}")
-
-            manifest_tick = (manifest_tick + 1) % max(1, 60 // (SCAN_INTERVAL // 60))
-            if manifest_tick == 0:
-                regen_manifest()
-
-            time.sleep(SCAN_INTERVAL)
+            scan_and_update()
+            next_scan = time.time() + SCAN_INTERVAL
+            while time.time() < next_scan:
+                remaining = next_scan - time.time()
+                time.sleep(min(MONITOR_INTERVAL, max(0, remaining)))
+                if time.time() < next_scan:
+                    state = load_state()
+                    settle_positions(state)
+                    save_state(state)
+                    regen_manifest()
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")
         regen_manifest()
