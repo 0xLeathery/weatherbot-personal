@@ -13,19 +13,37 @@ def _m(status="closed", pnl=None, pos_pnl=None, pos_status="closed", resolved_ou
     }
 
 
-def test_ledger_ok_when_balance_matches_sum_of_realized_pnl():
-    state = {"balance": 1007.0, "starting_balance": 1000.0, "peak_balance": 1007.0}
+def test_ledger_ok_when_balance_matches_reservation_invariant():
+    # Invariant: balance = starting + realized - open_costs
+    # = 1000 + 5 + 2 - 100 = 907
+    state = {"balance": 907.0, "starting_balance": 1000.0, "peak_balance": 1007.0}
     markets = [
         _m(pos_pnl=5.0),            # closed stop-loss: +5
         _m(pnl=2.0, resolved_outcome="win"),  # resolved: +2
-        _m(status="open", pos_status="open", pos_pnl=None, cost=100),  # open — ignored
+        _m(status="open", pos_status="open", pos_pnl=None, cost=100),  # open — reserves $100
     ]
     result = check_ledger(state, markets)
     assert isinstance(result, LedgerCheck)
     assert result.ok is True
     assert result.drift == 0.0
-    assert result.balance_on_disk == 1007.0
-    assert result.balance_from_markets == 1007.0
+    assert result.balance_on_disk == 907.0
+    assert result.balance_from_markets == 907.0
+    assert result.open_count == 1
+    assert result.open_cost == 100.0
+
+
+def test_ledger_flags_drift_when_open_costs_ignored():
+    # Ledger repaired with 'balance = starting + realized' while positions were
+    # still open — the bot's reservation accounting will now diverge.
+    state = {"balance": 1000.0, "starting_balance": 1000.0, "peak_balance": 1000.0}
+    markets = [
+        _m(status="open", pos_status="open", pos_pnl=None, cost=150),
+    ]
+    result = check_ledger(state, markets)
+    assert result.ok is False
+    assert result.balance_from_markets == 850.0
+    assert result.drift == pytest.approx(150.0)
+    assert result.open_cost == 150.0
 
 
 def test_ledger_drift_surfaces_as_non_ok():
