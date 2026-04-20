@@ -238,6 +238,41 @@ def check_market_resolved(market_id):
         print(f"Error checking resolution {market_id}: {e}")
         return None
 
+def settle_positions(state):
+    """Check all open positions for resolution; close and update balance."""
+    balance = state["balance"]
+    for path in POSITIONS_DIR.glob("*.json"):
+        try:
+            pos = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if pos.get("status") != "open":
+            continue
+
+        result = check_market_resolved(pos["market_id"])
+        if result is None:
+            continue
+
+        won = result  # bot always buys YES tokens
+        shares = pos.get("shares", 0)
+        cost = pos.get("cost", 0.0)
+        entry = pos.get("entry_price", 0.5)
+        pnl = round(shares * (1.0 - entry), 2) if won else round(-cost, 2)
+
+        pos["status"] = "closed"
+        pos["pnl"] = pnl
+        pos["exit_price"] = 1.0 if won else 0.0
+        pos["closed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
+        pos["close_reason"] = "resolved"
+        path.write_text(json.dumps(pos, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        balance += cost + pnl
+        apply_closure_to_state(state, pnl)
+        print(f"  CLOSE [{'WIN' if won else 'LOSS'}]: {pos['question'][:50]}  PnL: ${pnl:.2f}")
+
+    state["balance"] = round(balance, 2)
+    state["peak_balance"] = max(state.get("peak_balance", balance), balance)
+
 # =============================================================================
 # POSITION STORAGE
 # =============================================================================
