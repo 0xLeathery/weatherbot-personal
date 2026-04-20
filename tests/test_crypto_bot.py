@@ -28,3 +28,12 @@ def test_two_positions_same_symbol_same_day_no_collision(tmp_path, monkeypatch):
     crypto_bot.save_position(pos1)
     crypto_bot.save_position(pos2)
     assert len(list(tmp_path.glob("*.json"))) == 2
+
+def test_load_position_returns_existing_for_duplicate_check(tmp_path, monkeypatch):
+    """If a position for market_id already exists, load_position returns it (non-None)."""
+    monkeypatch.setattr(crypto_bot, "POSITIONS_DIR", tmp_path)
+    pos = {"market_id": "mkt-dup", "symbol": "ETH", "status": "open"}
+    crypto_bot.save_position(pos)
+    # Non-None return value is what the duplicate guard checks
+    assert crypto_bot.load_position("mkt-dup") is not None
+    assert crypto_bot.load_position("mkt-new") is None

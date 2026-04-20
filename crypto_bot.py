@@ -313,7 +313,11 @@ def scan_and_update():
             print(f"No candles for {asset}")
             continue
 
-        current_price = float(candles[-1][4])
+        try:
+            current_price = float(candles[-1][4])
+        except (IndexError, ValueError) as e:
+            print(f"Bad candle data for {asset}: {e}")
+            continue
         print(f"Current price: ${current_price:,.2f}")
 
         vol = compute_realized_vol(candles)
@@ -325,6 +329,9 @@ def scan_and_update():
         for market in markets:
             target_price, side = parse_market_question(market["question"])
             if not target_price:
+                continue
+
+            if load_position(market["id"]):
                 continue
 
             hours = hours_to_resolution(market["resolution_date"])
