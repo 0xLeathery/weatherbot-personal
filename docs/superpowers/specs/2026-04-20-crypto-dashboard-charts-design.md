@@ -160,10 +160,15 @@ resolved.forEach(p => {
 });
 ```
 
-### Drawdown:
+### Equity array (required by DrawdownChart):
 ```javascript
-const peak = state.peak_balance;
-const drawdowns = equity.map(e => Math.max(0, peak - (state.starting_balance + e.v)));
+// DrawdownChart expects { ts, balance } — running balance, not delta
+let runningBalance = state.starting_balance;
+const equity = resolved.map(p => {
+  runningBalance += p.pnl || 0;
+  return { ts: p.closed_at, balance: runningBalance };
+});
+// DrawdownChart tracks peak internally: peak = Math.max(peak, e.balance)
 ```
 
 ---
