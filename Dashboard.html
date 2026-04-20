@@ -1097,7 +1097,7 @@ function CryptoView({ cryptoData }) {
 // MAIN APP
 // ============================================================================
 
-function App({ data, lastFetched, onRefresh, fetchError }) {
+function App({ data, lastFetched, onRefresh, fetchError, cryptoData }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("wb.theme") || "dark");
   const [density, setDensity] = useState(() => localStorage.getItem("wb.density") || "balanced");
   const [accent, setAccent] = useState(() => localStorage.getItem("wb.accent") || "cyan");
@@ -1780,7 +1780,7 @@ function Root() {
 
   if (error && !data) return <ErrorScreen message={error} />;
   if (!data) return <LoadingScreen />;
-  return <App data={data} lastFetched={lastFetched} onRefresh={refresh} fetchError={fetchError} />;
+  return <App data={data} lastFetched={lastFetched} onRefresh={refresh} fetchError={fetchError} cryptoData={cryptoData} />;
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
