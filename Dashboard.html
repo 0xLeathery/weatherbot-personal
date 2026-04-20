@@ -1663,6 +1663,7 @@ python3 -m http.server 8000
 
 function Root() {
   const [data, setData] = useState(null);
+  const [cryptoData, setCryptoData] = useState(null);
   const [error, setError] = useState(null);
   const [lastFetched, setLastFetched] = useState(null);
   const [fetchError, setFetchError] = useState(null);
@@ -1671,6 +1672,8 @@ function Root() {
     try {
       const d = await loadData();
       setData(d);
+      const cd = await loadCryptoData();
+      setCryptoData(cd);
       setLastFetched(new Date().toISOString());
       setError(null);
       setFetchError(null);
