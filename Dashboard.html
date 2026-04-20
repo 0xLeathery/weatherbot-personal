@@ -1004,6 +1004,96 @@ function SourceTag({ src }) {
 }
 
 // ============================================================================
+// CRYPTOVIEW COMPONENT
+// ============================================================================
+
+function CryptoView({ cryptoData }) {
+  if (!cryptoData) {
+    return <div style={{padding:"16px",color:"var(--text-muted)"}}>Loading…</div>;
+  }
+
+  const { state, positions } = cryptoData;
+  const open = positions.filter(p => p.status === "open");
+  const resolved = positions
+    .filter(p => p.status === "closed")
+    .sort((a, b) => (b.closed_at || "").localeCompare(a.closed_at || ""));
+  const { wins = 0, losses = 0, total_trades = 0 } = state;
+  const winRate = (wins + losses) > 0 ? (wins / (wins + losses) * 100).toFixed(1) : "—";
+  const totalPnL = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
+
+  return (
+    <>
+      <div className="kpi-strip">
+        <KpiTile label="Balance"  value={fmtUSD(state.balance)}  sub={`Peak ${fmtUSD(state.peak_balance)}`} />
+        <KpiTile label="Open"     value={open.length}            sub={`${total_trades} total trades`} />
+        <KpiTile label="Win Rate" value={winRate === "—" ? "—" : `${winRate}%`} sub={`${wins}W / ${losses}L`} />
+        <KpiTile label="Total P&L" value={fmtUSD(totalPnL)}      sub="realized" />
+      </div>
+
+      <section className="card">
+        <h2>Open Positions ({open.length})</h2>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Question</th>
+              <th>Entry</th>
+              <th>EV</th>
+              <th>Model P</th>
+              <th>Opened</th>
+            </tr>
+          </thead>
+          <tbody>
+            {open.length === 0
+              ? <tr><td colSpan={6} style={{textAlign:"center",color:"var(--text-muted)"}}>No open positions</td></tr>
+              : open.map(p => (
+                <tr key={p.market_id}>
+                  <td><strong>{p.symbol}</strong></td>
+                  <td style={{maxWidth:"320px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={p.question}>{p.question}</td>
+                  <td>{(p.entry_price || 0).toFixed(3)}</td>
+                  <td className={(p.ev || 0) > 0 ? "positive" : "negative"}>{((p.ev || 0) * 100).toFixed(1)}%</td>
+                  <td>{((p.prob_model || 0) * 100).toFixed(1)}%</td>
+                  <td style={{color:"var(--text-muted)"}}>{(p.opened_at || "").slice(0, 10)}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </section>
+
+      <section className="card">
+        <h2>Resolved ({resolved.length})</h2>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Question</th>
+              <th>Outcome</th>
+              <th>P&L</th>
+              <th>Closed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resolved.length === 0
+              ? <tr><td colSpan={5} style={{textAlign:"center",color:"var(--text-muted)"}}>No resolved positions</td></tr>
+              : resolved.map(p => (
+                <tr key={p.market_id}>
+                  <td><strong>{p.symbol}</strong></td>
+                  <td style={{maxWidth:"320px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={p.question}>{p.question}</td>
+                  <td><span className={`pill ${(p.pnl || 0) > 0 ? "win" : "loss"}`}>{(p.pnl || 0) > 0 ? "WIN" : "LOSS"}</span></td>
+                  <td className={(p.pnl || 0) > 0 ? "positive" : "negative"}>{fmtUSD(p.pnl)}</td>
+                  <td style={{color:"var(--text-muted)"}}>{(p.closed_at || "").slice(0, 10)}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </section>
+    </>
+  );
+}
+
+// ============================================================================
 // MAIN APP
 // ============================================================================
 
@@ -1531,14 +1621,7 @@ function App({ data, lastFetched, onRefresh, fetchError }) {
       </>
       )}
 
-      {activeTab === "crypto" && (
-      <>
-      <div style={{ padding: "16px", color: "var(--text-muted)" }}>
-        <p><strong>Crypto Trading</strong> - Coming soon</p>
-        <p>Real-time Polymarket crypto price predictions using 15-minute candle data.</p>
-      </div>
-      </>
-      )}
+      {activeTab === "crypto" && <CryptoView cryptoData={cryptoData} />}
 
       {/* ===== TWEAKS PANEL ===== */}
       {tweaksOpen && (
