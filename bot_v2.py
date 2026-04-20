@@ -443,6 +443,33 @@ def apply_closure_to_state(state, pnl):
         state["losses"] = state.get("losses", 0) + 1
 
 
+def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> float:
+    """Close position if forecast has shifted outside its bucket by ≥ buffer degrees.
+
+    Only fires on positions with status == 'open'. Returns the balance delta
+    (cost + pnl) if a close occurred, 0.0 otherwise. Mutates mkt['position'].
+    """
+    pos = mkt.get("position")
+    if not pos or pos.get("status") != "open" or forecast_temp is None:
+        return 0.0
+    old_bucket_low  = pos["bucket_low"]
+    old_bucket_high = pos["bucket_high"]
+    buffer = 2.0 if loc["unit"] == "F" else 1.0
+    mid_bucket = (old_bucket_low + old_bucket_high) / 2 if old_bucket_low != -999 and old_bucket_high != 999 else forecast_temp
+    forecast_far = abs(forecast_temp - mid_bucket) > (abs(mid_bucket - old_bucket_low) + buffer)
+    if not in_bucket(forecast_temp, old_bucket_low, old_bucket_high) and forecast_far:
+        current_price = next((o["price"] for o in outcomes if o["market_id"] == pos["market_id"]), None)
+        if current_price is not None:
+            pnl = round((current_price - pos["entry_price"]) * pos["shares"], 2)
+            pos["closed_at"]    = snap.get("ts")
+            pos["close_reason"] = "forecast_changed"
+            pos["exit_price"]   = current_price
+            pos["pnl"]          = pnl
+            pos["status"]       = "closed"
+            return pos["cost"] + pnl
+    return 0.0
+
+
 def take_forecast_snapshot(city_slug, dates):
     """Fetches forecasts from all sources and returns a snapshot."""
     now_str = datetime.now(timezone.utc).isoformat()
@@ -606,31 +633,12 @@ def scan_and_update():
                         print(f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
 
             # --- CLOSE POSITION if forecast shifted 2+ degrees ---
-            if mkt.get("position") and forecast_temp is not None:
-                pos = mkt["position"]
-                old_bucket_low  = pos["bucket_low"]
-                old_bucket_high = pos["bucket_high"]
-                # 2-degree buffer — avoid closing on small forecast fluctuations
-                unit = loc["unit"]
-                buffer = 2.0 if unit == "F" else 1.0
-                mid_bucket = (old_bucket_low + old_bucket_high) / 2 if old_bucket_low != -999 and old_bucket_high != 999 else forecast_temp
-                forecast_far = abs(forecast_temp - mid_bucket) > (abs(mid_bucket - old_bucket_low) + buffer)
-                if not in_bucket(forecast_temp, old_bucket_low, old_bucket_high) and forecast_far:
-                    current_price = None
-                    for o in outcomes:
-                        if o["market_id"] == pos["market_id"]:
-                            current_price = o["price"]
-                            break
-                    if current_price is not None:
-                        pnl = round((current_price - pos["entry_price"]) * pos["shares"], 2)
-                        balance += pos["cost"] + pnl
-                        mkt["position"]["closed_at"]    = snap.get("ts")
-                        mkt["position"]["close_reason"] = "forecast_changed"
-                        mkt["position"]["exit_price"]   = current_price
-                        mkt["position"]["pnl"]          = pnl
-                        mkt["position"]["status"]       = "closed"
-                        closed += 1
-                        print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+            fc_delta = _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap)
+            if fc_delta:
+                balance += fc_delta
+                closed += 1
+                fc_pnl = mkt["position"]["pnl"]
+                print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if fc_pnl>=0 else ''}{fc_pnl:.2f}")
 
             # --- OPEN POSITION ---
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
