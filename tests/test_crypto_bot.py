@@ -79,6 +79,29 @@ def test_check_market_resolved_api_error():
         result = crypto_bot.check_market_resolved("mkt-err")
     assert result is None
 
+def test_check_market_resolved_prices_yes_is_index_zero():
+    """Verify outcomePrices[0] corresponds to YES outcome.
+
+    IMPORTANT: This assumes Polymarket's Gamma API orders tokens [YES, NO].
+    If this assumption breaks, WIN/LOSS logic inverts silently.
+
+    Action: If Polymarket changes token ordering, modify check_market_resolved
+    to look up tokens by name/outcome instead of assuming index positions.
+    """
+    with patch("crypto_bot.requests.get") as mock_get:
+        # Use threshold values that match check_market_resolved (>= 0.95 for YES)
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "closed": True,
+            "outcomePrices": "[0.98, 0.02]",
+            "outcomes": ["Yes", "No"],
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        result = crypto_bot.check_market_resolved("mkt-test")
+        assert result is True  # yes_price 0.98 >= 0.95 threshold
+
 def _open_position(market_id, shares, cost, entry_price):
     return {
         "market_id": market_id,
@@ -155,3 +178,36 @@ def test_settle_positions_skips_still_open(tmp_path, monkeypatch):
     loaded = crypto_bot.load_position("mkt-s")
     assert loaded["status"] == "open"
     assert state["balance"] == 995.0  # unchanged
+
+def test_load_position_corrupt_json_skipped(tmp_path, monkeypatch):
+    """settle_positions skips corrupt position files without crashing."""
+    monkeypatch.setattr(crypto_bot, "POSITIONS_DIR", tmp_path)
+    (tmp_path / "mkt-bad.json").write_text("{invalid json")
+    (tmp_path / "mkt-good.json").write_text('{"market_id": "mkt-good", "status": "closed"}')
+    # settle_positions should handle corrupt file gracefully
+    state = {"balance": 1000, "peak_balance": 1000, "wins": 0, "losses": 0}
+    crypto_bot.settle_positions(state)
+    assert state["balance"] == 1000  # unchanged, corrupt file skipped
+
+def test_settle_positions_two_sequential_no_double_count(tmp_path, monkeypatch):
+    """Settling two positions sequentially doesn't double-count balance updates.
+
+    Regression test: apply_closure_to_state() must not conflict with explicit
+    state["balance"] = round(balance, 2) assignment at end of settle_positions.
+    """
+    monkeypatch.setattr(crypto_bot, "POSITIONS_DIR", tmp_path)
+    pos1 = _open_position("mkt-1", shares=10.0, cost=10.0, entry_price=0.50)
+    pos2 = _open_position("mkt-2", shares=20.0, cost=20.0, entry_price=0.50)
+    crypto_bot.save_position(pos1)
+    crypto_bot.save_position(pos2)
+
+    state = {"balance": 970.0, "peak_balance": 1000.0, "wins": 0, "losses": 0}
+    # pos1 resolves YES: pnl = 10 * (1 - 0.50) = 5.0
+    # pos2 resolves YES: pnl = 20 * (1 - 0.50) = 10.0
+    # Final balance should be 970 + (10 + 5) + (20 + 10) = 1015
+    with patch("crypto_bot.check_market_resolved") as mock_check:
+        mock_check.side_effect = [True, True]
+        crypto_bot.settle_positions(state)
+
+    assert state["balance"] == 1015.0
+    assert state["wins"] == 2
