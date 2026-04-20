@@ -52,10 +52,25 @@ def regenerate_manifest() -> None:
     (DATA_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
 
+def regenerate_crypto_manifest() -> None:
+    crypto_dir = DATA_DIR / "crypto"
+    crypto_dir.mkdir(exist_ok=True)
+    positions_dir = crypto_dir / "positions"
+    positions_dir.mkdir(exist_ok=True)
+    position_files = sorted(p.name for p in positions_dir.glob("*.json"))
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "state": "state.json" if (crypto_dir / "state.json").exists() else None,
+        "positions": position_files,
+    }
+    (crypto_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+
 def manifest_loop() -> None:
     while True:
         try:
             regenerate_manifest()
+            regenerate_crypto_manifest()
         except Exception as e:  # pragma: no cover
             print(f"[dash] manifest regen failed: {e}", file=sys.stderr, flush=True)
         time.sleep(MANIFEST_INTERVAL)
