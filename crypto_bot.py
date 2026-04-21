@@ -218,24 +218,27 @@ def hours_to_resolution(resolution_date_iso):
         return 24
 
 def check_market_resolved(market_id):
-    """Returns True (YES won), False (NO won), None (still open or unclear)."""
+    """Returns (outcome, price) tuple or (None, 0.5) if unresolved.
+    outcome: True (YES won), False (NO won), None (still open or unclear)
+    price: actual YES probability from market resolution (0.0-1.0)
+    """
     try:
         url = f"https://gamma-api.polymarket.com/markets/{market_id}"
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         if not data.get("closed", False):
-            return None
+            return (None, 0.5)
         prices = json.loads(data.get("outcomePrices", "[0.5,0.5]"))
         yes_price = float(prices[0])
         if yes_price >= 0.95:
-            return True
+            return (True, yes_price)
         if yes_price <= 0.05:
-            return False
-        return None
+            return (False, yes_price)
+        return (None, yes_price)
     except Exception as e:
         print(f"Error checking resolution {market_id}: {e}")
-        return None
+        return (None, 0.5)
 
 def settle_positions(state):
     """Check all open positions for resolution; close and update balance."""
@@ -248,19 +251,19 @@ def settle_positions(state):
         if pos.get("status") != "open":
             continue
 
-        result = check_market_resolved(pos["market_id"])
-        if result is None:
+        outcome, resolved_price = check_market_resolved(pos["market_id"])
+        if outcome is None:
             continue
 
-        won = result  # bot always buys YES tokens
+        won = outcome  # bot always buys YES tokens
         shares = pos.get("shares", 0)
         cost = pos.get("cost", 0.0)
         entry = pos.get("entry_price", 0.5)
-        pnl = round(shares * (1.0 - entry), 2) if won else round(-cost, 2)
+        pnl = round(shares * (resolved_price - entry), 2)
 
         pos["status"] = "closed"
         pos["pnl"] = pnl
-        pos["exit_price"] = 1.0 if won else 0.0
+        pos["exit_price"] = resolved_price
         pos["closed_at"] = datetime.now(timezone.utc).isoformat() + "Z"
         pos["close_reason"] = "resolved"
         path.write_text(json.dumps(pos, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -493,6 +496,50 @@ def print_status():
     else:
         print("\nNo open positions")
 
+    print(f"{'='*60}\n")
+
+
+def print_report():
+    """Print full report of resolved positions."""
+    positions = load_all_positions()
+    resolved = [p for p in positions if p["status"] == "closed" and p.get("pnl") is not None]
+
+    print(f"\n{'='*60}")
+    print(f"  CRYPTOBOT — FULL REPORT")
+    print(f"{'='*60}")
+
+    if not resolved:
+        print("  No resolved positions yet.")
+        return
+
+    total_pnl = sum(p["pnl"] for p in resolved)
+    wins = [p for p in resolved if p["pnl"] > 0]
+    losses = [p for p in resolved if p["pnl"] <= 0]
+
+    print(f"\n  Total resolved: {len(resolved)}")
+    print(f"  Wins:          {len(wins)} | Losses: {len(losses)}")
+    print(f"  Win rate:      {len(wins)/len(resolved):.0%}")
+    print(f"  Total PnL:    {'+'if total_pnl>=0 else ''}{total_pnl:.2f}")
+
+    print(f"\n  By symbol:")
+    for symbol in sorted(set(p["symbol"] for p in resolved)):
+        group = [p for p in resolved if p["symbol"] == symbol]
+        w = len([p for p in group if p["pnl"] > 0])
+        pnl = sum(p["pnl"] for p in group)
+        print(f"    {symbol:<6} {w}/{len(group)} ({w/len(group):.0%})  PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+
+    print(f"\n  Position details:")
+    for p in sorted(resolved, key=lambda x: x.get("closed_at", "")):
+        result = "WIN" if p["pnl"] > 0 else "LOSS"
+        pnl_str = f"+{p['pnl']:.2f}" if p["pnl"] >= 0 else f"{p['pnl']:.2f}"
+        opened = p.get("opened_at", "")[:10]
+        closed = p.get("closed_at", "")[:10]
+        print(f"    {p['symbol']:<6} {opened} | {p['question'][:40]}")
+        print(f"           {p['side']} ${p['target_price']:,.0f} | entry {p['entry_price']:.3f} | {result} {pnl_str}")
+
+    print(f"{'='*60}\n")
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -507,10 +554,12 @@ if __name__ == "__main__":
             regen_manifest()
         elif cmd == "status":
             print_status()
+        elif cmd == "report":
+            print_report()
         elif cmd == "manifest":
             regen_manifest()
         else:
             print(f"Unknown command: {cmd}")
-            print("Usage: crypto_bot.py [run|scan|status|manifest]")
+            print("Usage: crypto_bot.py [run|scan|status|report|manifest]")
     else:
-        print("Usage: crypto_bot.py [run|scan|status|manifest]")
+        print("Usage: crypto_bot.py [run|scan|status|report|manifest]")

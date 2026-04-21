@@ -46,27 +46,32 @@ def _mock_gamma_response(closed, yes_price):
 def test_check_market_resolved_still_open():
     with patch("crypto_bot.requests.get") as mock_get:
         mock_get.return_value = _mock_gamma_response(closed=False, yes_price=0.55)
-        assert crypto_bot.check_market_resolved("mkt-open") is None
+        outcome, price = crypto_bot.check_market_resolved("mkt-open")
+        assert outcome is None and price == 0.5
 
 def test_check_market_resolved_yes_wins():
     with patch("crypto_bot.requests.get") as mock_get:
         mock_get.return_value = _mock_gamma_response(closed=True, yes_price=0.98)
-        assert crypto_bot.check_market_resolved("mkt-win") is True
+        outcome, price = crypto_bot.check_market_resolved("mkt-win")
+        assert outcome is True and price == 0.98
 
 def test_check_market_resolved_no_wins():
     with patch("crypto_bot.requests.get") as mock_get:
         mock_get.return_value = _mock_gamma_response(closed=True, yes_price=0.02)
-        assert crypto_bot.check_market_resolved("mkt-loss") is False
+        outcome, price = crypto_bot.check_market_resolved("mkt-loss")
+        assert outcome is False and price == 0.02
 
 def test_check_market_resolved_ambiguous():
     with patch("crypto_bot.requests.get") as mock_get:
         mock_get.return_value = _mock_gamma_response(closed=True, yes_price=0.50)
-        assert crypto_bot.check_market_resolved("mkt-ambig") is None
+        outcome, price = crypto_bot.check_market_resolved("mkt-ambig")
+        assert outcome is None and price == 0.50
 
 def test_check_market_resolved_api_error():
     with patch("crypto_bot.requests.get") as mock_get:
         mock_get.side_effect = Exception("timeout")
-        assert crypto_bot.check_market_resolved("mkt-err") is None
+        outcome, price = crypto_bot.check_market_resolved("mkt-err")
+        assert outcome is None and price == 0.5
 
 def test_check_market_resolved_prices_yes_is_index_zero():
     with patch("crypto_bot.requests.get") as mock_get:
@@ -74,7 +79,8 @@ def test_check_market_resolved_prices_yes_is_index_zero():
         mock_resp.json.return_value = {"closed": True, "outcomePrices": "[0.98, 0.02]", "outcomes": ["Yes", "No"]}
         mock_resp.raise_for_status.return_value = None
         mock_get.return_value = mock_resp
-        assert crypto_bot.check_market_resolved("mkt-test") is True
+        outcome, price = crypto_bot.check_market_resolved("mkt-test")
+        assert outcome is True and price == 0.98
 
 def _open_position(market_id, shares, cost, entry_price):
     return {"market_id": market_id, "symbol": "BTC", "question": f"Will BTC hit target? ({market_id})", "side": "above", "shares": shares, "cost": cost, "entry_price": entry_price, "status": "open", "pnl": None}
@@ -84,7 +90,7 @@ def test_settle_positions_win(tmp_path, monkeypatch):
     pos = _open_position("mkt-w", shares=20.0, cost=10.0, entry_price=0.50)
     crypto_bot.save_position(pos)
     state = {"balance": 990.0, "peak_balance": 990.0, "wins": 0, "losses": 0}
-    with patch("crypto_bot.check_market_resolved", return_value=True):
+    with patch("crypto_bot.check_market_resolved", return_value=(True, 1.0)):
         crypto_bot.settle_positions(state)
     settled = crypto_bot.load_position("mkt-w")
     assert settled["status"] == "closed" and settled["exit_price"] == 1.0 and settled["pnl"] == 10.0
@@ -95,7 +101,7 @@ def test_settle_positions_loss(tmp_path, monkeypatch):
     pos = _open_position("mkt-l", shares=16.67, cost=10.0, entry_price=0.60)
     crypto_bot.save_position(pos)
     state = {"balance": 990.0, "peak_balance": 990.0, "wins": 0, "losses": 0}
-    with patch("crypto_bot.check_market_resolved", return_value=False):
+    with patch("crypto_bot.check_market_resolved", return_value=(False, 0.0)):
         crypto_bot.settle_positions(state)
     settled = crypto_bot.load_position("mkt-l")
     assert settled["status"] == "closed" and settled["exit_price"] == 0.0 and settled["pnl"] == -10.0
@@ -108,7 +114,7 @@ def test_settle_positions_skips_already_closed(tmp_path, monkeypatch):
     pos["pnl"] = 5.0
     crypto_bot.save_position(pos)
     state = {"balance": 1000.0, "peak_balance": 1000.0, "wins": 1, "losses": 0}
-    with patch("crypto_bot.check_market_resolved", return_value=True) as mock_check:
+    with patch("crypto_bot.check_market_resolved", return_value=(True, 1.0)) as mock_check:
         crypto_bot.settle_positions(state)
     mock_check.assert_not_called()
     assert state["balance"] == 1000.0
@@ -118,7 +124,7 @@ def test_settle_positions_skips_still_open(tmp_path, monkeypatch):
     pos = _open_position("mkt-s", shares=10.0, cost=5.0, entry_price=0.50)
     crypto_bot.save_position(pos)
     state = {"balance": 995.0, "peak_balance": 1000.0, "wins": 0, "losses": 0}
-    with patch("crypto_bot.check_market_resolved", return_value=None):
+    with patch("crypto_bot.check_market_resolved", return_value=(None, 0.5)):
         crypto_bot.settle_positions(state)
     loaded = crypto_bot.load_position("mkt-s")
     assert loaded["status"] == "open" and state["balance"] == 995.0
@@ -139,6 +145,6 @@ def test_settle_positions_two_sequential_no_double_count(tmp_path, monkeypatch):
     crypto_bot.save_position(pos2)
     state = {"balance": 970.0, "peak_balance": 1000.0, "wins": 0, "losses": 0}
     with patch("crypto_bot.check_market_resolved") as mock_check:
-        mock_check.side_effect = [True, True]
+        mock_check.side_effect = [(True, 1.0), (True, 1.0)]
         crypto_bot.settle_positions(state)
     assert state["balance"] == 1015.0 and state["wins"] == 2
