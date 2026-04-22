@@ -42,6 +42,45 @@ def fetch_actual_temp(city_slug: str, date_str: str) -> float | None:
     return None
 
 
+def _max_filtered(arr: list) -> float | None:
+    """Return max of non-None values, or None if all None."""
+    vals = [v for v in arr if v is not None]
+    return round(max(vals), 1) if vals else None
+
+
+def fetch_ecmwf_forecasts(city_slug: str, date_str: str) -> dict | None:
+    """Fetch ECMWF forecasts for d0, d1, d2 from Previous Runs API."""
+    loc = LOCATIONS.get(city_slug)
+    if not loc:
+        return None
+
+    tz = TIMEZONES.get(city_slug, "UTC")
+    temp_unit = "fahrenheit" if loc["unit"] == "F" else "celsius"
+    url = (
+        f"https://previous-runs-api.open-meteo.com/v1/forecast"
+        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"&start_date={date_str}&end_date={date_str}"
+        f"&hourly=temperature_2m,temperature_2m_previous_day1,temperature_2m_previous_day2"
+        f"&temperature_unit={temp_unit}"
+        f"&timezone={tz}"
+        f"&models=ecmwf_ifs025"
+    )
+
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        hourly = data.get("hourly", {})
+        return {
+            "d0": _max_filtered(hourly.get("temperature_2m", [])),
+            "d1": _max_filtered(hourly.get("temperature_2m_previous_day1", [])),
+            "d2": _max_filtered(hourly.get("temperature_2m_previous_day2", [])),
+        }
+    except Exception as e:
+        print(f"    [API Error] ECMWF {city_slug} {date_str}: {e}")
+        return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Backfill calibration data from Open-Meteo APIs"

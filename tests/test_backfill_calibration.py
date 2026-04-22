@@ -70,3 +70,58 @@ def test_fetch_actual_temp_api_error_returns_none():
         result = fetch_actual_temp("chicago", "2026-04-01")
 
     assert result is None
+
+
+def test_fetch_ecmwf_forecasts_extracts_daily_max():
+    """Convert hourly temps to daily max for d0, d1, d2."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "hourly": {
+            "temperature_2m": [70, 75, 72, 68] * 6,  # 24 hours, max=75
+            "temperature_2m_previous_day1": [65, 70, 68, 64] * 6,  # max=70
+            "temperature_2m_previous_day2": [60, 65, 63, 58] * 6,  # max=65
+        }
+    }
+
+    with patch('backfill_calibration.requests.get', return_value=mock_response):
+        from backfill_calibration import fetch_ecmwf_forecasts
+        result = fetch_ecmwf_forecasts("chicago", "2026-04-01")
+
+    assert result == {"d0": 75, "d1": 70, "d2": 65}
+
+
+def test_fetch_ecmwf_forecasts_handles_none_values():
+    """Filter out None values from hourly arrays."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "hourly": {
+            "temperature_2m": [70, None, 75, None],
+            "temperature_2m_previous_day1": [None, None, None, None],
+            "temperature_2m_previous_day2": [60, 65],
+        }
+    }
+
+    with patch('backfill_calibration.requests.get', return_value=mock_response):
+        from backfill_calibration import fetch_ecmwf_forecasts
+        result = fetch_ecmwf_forecasts("chicago", "2026-04-01")
+
+    assert result["d0"] == 75
+    assert result["d1"] is None  # all None
+    assert result["d2"] == 65
+
+
+def test_fetch_ecmwf_forecasts_uses_timezone():
+    """Use city timezone from TIMEZONES dict."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"hourly": {
+        "temperature_2m": [70],
+        "temperature_2m_previous_day1": [65],
+        "temperature_2m_previous_day2": [60],
+    }}
+
+    with patch('backfill_calibration.requests.get', return_value=mock_response) as mock_get:
+        from backfill_calibration import fetch_ecmwf_forecasts
+        fetch_ecmwf_forecasts("tokyo", "2026-04-01")
+
+    call_url = mock_get.call_args[0][0]
+    assert "timezone=Asia%2FTokyo" in call_url or "timezone=Asia/Tokyo" in call_url
