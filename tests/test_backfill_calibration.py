@@ -292,3 +292,77 @@ def test_should_skip_corrupt_json(tmp_path):
     market_file = tmp_path / "corrupt.json"
     market_file.write_text("{ not valid json")
     assert should_skip(market_file) is False
+
+
+def test_backfill_creates_market_files(tmp_path):
+    """backfill() creates market files for date range."""
+    from backfill_calibration import backfill
+
+    mock_actual = MagicMock(return_value=75.0)
+    mock_ecmwf = MagicMock(return_value={"d0": 74, "d1": 72, "d2": 70})
+    mock_hrrr = MagicMock(return_value={"d0": 75, "d1": 73, "d2": 71})
+
+    with patch('backfill_calibration.fetch_actual_temp', mock_actual), \
+         patch('backfill_calibration.fetch_ecmwf_forecasts', mock_ecmwf), \
+         patch('backfill_calibration.fetch_hrrr_forecasts', mock_hrrr), \
+         patch('backfill_calibration.DATA_DIR', tmp_path), \
+         patch('backfill_calibration.time.sleep'):
+
+        stats = backfill(
+            start=date(2026, 4, 1),
+            end=date(2026, 4, 2),
+            cities=["chicago"],
+            dry_run=False,
+        )
+
+    assert stats["created"] == 2
+    assert (tmp_path / "chicago_2026-04-01.json").exists()
+    assert (tmp_path / "chicago_2026-04-02.json").exists()
+
+
+def test_backfill_skips_existing_complete(tmp_path):
+    """backfill() skips files that already have complete data."""
+    from backfill_calibration import backfill
+
+    # Pre-create complete file
+    (tmp_path / "chicago_2026-04-01.json").write_text(json.dumps({
+        "city": "chicago",
+        "actual_temp": 75.0,
+        "forecast_snapshots": [{"h": "D+2"}, {"h": "D+1"}, {"h": "D+0"}],
+    }))
+
+    mock_actual = MagicMock(return_value=75.0)
+    mock_ecmwf = MagicMock(return_value={"d0": 74, "d1": 72, "d2": 70})
+    mock_hrrr = MagicMock(return_value={"d0": 75, "d1": 73, "d2": 71})
+
+    with patch('backfill_calibration.fetch_actual_temp', mock_actual), \
+         patch('backfill_calibration.fetch_ecmwf_forecasts', mock_ecmwf), \
+         patch('backfill_calibration.fetch_hrrr_forecasts', mock_hrrr), \
+         patch('backfill_calibration.DATA_DIR', tmp_path), \
+         patch('backfill_calibration.time.sleep'):
+
+        stats = backfill(
+            start=date(2026, 4, 1),
+            end=date(2026, 4, 2),
+            cities=["chicago"],
+            dry_run=False,
+        )
+
+    assert stats["skipped"] == 1
+    assert stats["created"] == 1
+
+
+def test_backfill_dry_run_no_writes(tmp_path):
+    """dry_run=True prints plan but doesn't write files."""
+    from backfill_calibration import backfill
+
+    with patch('backfill_calibration.DATA_DIR', tmp_path):
+        stats = backfill(
+            start=date(2026, 4, 1),
+            end=date(2026, 4, 2),
+            cities=["chicago"],
+            dry_run=True,
+        )
+
+    assert stats["created"] == 0
+    assert not (tmp_path / "chicago_2026-04-01.json").exists()

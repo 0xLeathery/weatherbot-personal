@@ -5,6 +5,7 @@ Creates minimal market files with forecast_snapshots and actual_temp.
 """
 import argparse
 import json
+import time
 import requests
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -178,6 +179,72 @@ def should_skip(market_file: Path) -> bool:
         return has_actual and has_snapshots
     except (json.JSONDecodeError, KeyError):
         return False
+
+
+def backfill(
+    start: date,
+    end: date,
+    cities: list[str],
+    dry_run: bool = False,
+) -> dict:
+    """Run backfill for date range and cities. Returns stats dict."""
+    stats = {"created": 0, "skipped": 0, "failed": 0}
+
+    # Generate all dates
+    current = start
+    dates = []
+    while current <= end:
+        dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+
+    total = len(dates) * len(cities)
+    print(f"\nBackfill: {len(dates)} days × {len(cities)} cities = {total} markets")
+
+    if dry_run:
+        print("\n[DRY RUN] Would process:")
+        for date_str in dates[:3]:
+            for city in cities[:3]:
+                print(f"  {city}_{date_str}")
+        if total > 9:
+            print(f"  ... and {total - 9} more")
+        return stats
+
+    for date_str in dates:
+        for city in cities:
+            market_file = DATA_DIR / f"{city}_{date_str}.json"
+
+            # Skip check
+            if should_skip(market_file):
+                print(f"  [SKIP] {city}_{date_str}")
+                stats["skipped"] += 1
+                continue
+
+            # Fetch data
+            actual = fetch_actual_temp(city, date_str)
+            if actual is None:
+                print(f"  [FAIL] {city}_{date_str}: no actual temp")
+                stats["failed"] += 1
+                time.sleep(0.1)
+                continue
+
+            ecmwf = fetch_ecmwf_forecasts(city, date_str)
+            if ecmwf is None:
+                print(f"  [FAIL] {city}_{date_str}: no ECMWF data")
+                stats["failed"] += 1
+                time.sleep(0.1)
+                continue
+
+            hrrr = fetch_hrrr_forecasts(city, date_str)  # None for non-US
+
+            # Build and write
+            market = build_market_file(city, date_str, actual, ecmwf, hrrr)
+            market_file.write_text(json.dumps(market, indent=2))
+            print(f"  [OK] {city}_{date_str}: {actual}°")
+            stats["created"] += 1
+
+            time.sleep(0.1)
+
+    return stats
 
 
 def parse_args():
