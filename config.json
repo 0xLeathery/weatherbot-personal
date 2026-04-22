@@ -8,7 +8,7 @@
   "max_hours": 72.0,
   "kelly_fraction": 0.25,
   "scan_interval": 3600,
-  "calibration_min": 30,
+  "calibration_min": 4,
   "vc_key": "",
   "max_slippage": 0.03
 }

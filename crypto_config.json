@@ -1,0 +1,12 @@
+{
+  "balance": 1000.0,
+  "max_bet": 20.0,
+  "min_ev": 0.08,
+  "kelly_fraction": 0.25,
+  "max_price": 0.80,
+  "min_volume": 1000,
+  "scan_interval": 900,
+  "candle_interval": "15m",
+  "candle_limit": 96,
+  "assets": ["BTC", "ETH", "BNB", "SOL", "XRP"]
+}

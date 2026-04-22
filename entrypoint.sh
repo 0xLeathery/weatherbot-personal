@@ -44,4 +44,10 @@ python3 dashboard_server.py &
 DASH_PID=$!
 trap 'kill $DASH_PID 2>/dev/null || true' EXIT
 
-exec python bot_v2.py run
+python3 bot_v2.py run >> bot_v2.log 2>&1 &
+BOT_PID=$!
+
+python3 crypto_bot.py run >> crypto_bot.log 2>&1 &
+CRYPTO_PID=$!
+
+wait $BOT_PID $CRYPTO_PID
