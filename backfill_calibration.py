@@ -4,6 +4,7 @@ Backfill historical calibration data from Open-Meteo APIs.
 Creates minimal market files with forecast_snapshots and actual_temp.
 """
 import argparse
+import json
 import requests
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -163,6 +164,20 @@ def build_market_file(
         "actual_temp": actual_temp,
         "forecast_snapshots": snapshots,
     }
+
+
+def should_skip(market_file: Path) -> bool:
+    """Check if file already has complete calibration data."""
+    if not market_file.exists():
+        return False
+
+    try:
+        data = json.loads(market_file.read_text())
+        has_actual = data.get("actual_temp") is not None
+        has_snapshots = len(data.get("forecast_snapshots", [])) >= 3
+        return has_actual and has_snapshots
+    except (json.JSONDecodeError, KeyError):
+        return False
 
 
 def parse_args():

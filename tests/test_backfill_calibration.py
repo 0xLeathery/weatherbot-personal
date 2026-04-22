@@ -1,6 +1,7 @@
 """Tests for backfill_calibration.py"""
 from datetime import date, timedelta
 from unittest.mock import patch, MagicMock
+import json
 import sys
 
 import pytest
@@ -229,3 +230,56 @@ def test_build_market_file_snapshot_timestamps():
     # D+0: 12 hours
     assert snaps[2]["hours_left"] == 12.0
     assert "2026-04-01" in snaps[2]["ts"]
+
+
+def test_should_skip_complete_file(tmp_path):
+    """Skip file with actual_temp and 3+ snapshots."""
+    from backfill_calibration import should_skip
+
+    market_file = tmp_path / "chicago_2026-04-01.json"
+    market_file.write_text(json.dumps({
+        "city": "chicago",
+        "actual_temp": 78.5,
+        "forecast_snapshots": [
+            {"horizon": "D+2"}, {"horizon": "D+1"}, {"horizon": "D+0"}
+        ],
+    }))
+
+    assert should_skip(market_file) is True
+
+
+def test_should_skip_missing_actual_temp(tmp_path):
+    """Don't skip if actual_temp missing."""
+    from backfill_calibration import should_skip
+
+    market_file = tmp_path / "chicago_2026-04-01.json"
+    market_file.write_text(json.dumps({
+        "city": "chicago",
+        "forecast_snapshots": [
+            {"horizon": "D+2"}, {"horizon": "D+1"}, {"horizon": "D+0"}
+        ],
+    }))
+
+    assert should_skip(market_file) is False
+
+
+def test_should_skip_insufficient_snapshots(tmp_path):
+    """Don't skip if fewer than 3 snapshots."""
+    from backfill_calibration import should_skip
+
+    market_file = tmp_path / "chicago_2026-04-01.json"
+    market_file.write_text(json.dumps({
+        "city": "chicago",
+        "actual_temp": 78.5,
+        "forecast_snapshots": [{"horizon": "D+0"}],
+    }))
+
+    assert should_skip(market_file) is False
+
+
+def test_should_skip_nonexistent_file(tmp_path):
+    """Don't skip if file doesn't exist."""
+    from backfill_calibration import should_skip
+
+    market_file = tmp_path / "nonexistent.json"
+    assert should_skip(market_file) is False
