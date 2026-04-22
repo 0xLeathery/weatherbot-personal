@@ -4,12 +4,41 @@ Backfill historical calibration data from Open-Meteo APIs.
 Creates minimal market files with forecast_snapshots and actual_temp.
 """
 import argparse
+import requests
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from bot_v2 import LOCATIONS, TIMEZONES
 
 DATA_DIR = Path(__file__).parent / "data" / "markets"
+
+
+def fetch_actual_temp(city_slug: str, date_str: str) -> float | None:
+    """Fetch actual high temp from Open-Meteo historical API."""
+    loc = LOCATIONS.get(city_slug)
+    if not loc:
+        return None
+
+    temp_unit = "fahrenheit" if loc["unit"] == "F" else "celsius"
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"&start_date={date_str}&end_date={date_str}"
+        f"&daily=temperature_2m_max"
+        f"&temperature_unit={temp_unit}"
+        f"&timezone=auto"
+    )
+
+    try:
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        temps = data.get("daily", {}).get("temperature_2m_max", [])
+        if temps and temps[0] is not None:
+            return round(temps[0], 1)
+    except Exception as e:
+        print(f"    [API Error] actual temp {city_slug} {date_str}: {e}")
+
+    return None
 
 
 def parse_args():
