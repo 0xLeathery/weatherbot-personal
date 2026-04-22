@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Create a script to backfill 27 days of historical calibration data for the weatherbot. This enables the calibration system to calculate accurate sigma (forecast error standard deviation) values per city/source for Kelly criterion bet sizing.
+Create a script to backfill 30 days of historical calibration data for the weatherbot. This enables the calibration system to calculate accurate sigma (forecast error standard deviation) values per city/source for Kelly criterion bet sizing.
 
 ## Approach
 
@@ -33,13 +33,13 @@ Minimal market files in `data/markets/{city}_{date}.json`:
   "actual_temp": 78.5,
   "forecast_snapshots": [
     {
-      "ts": "2026-04-01T12:00:00Z",
-      "horizon": "D+0",
-      "hours_left": 12.0,
-      "ecmwf": 80.3,
-      "hrrr": 79.1,
+      "ts": "2026-03-30T12:00:00Z",
+      "horizon": "D+2",
+      "hours_left": 60.0,
+      "ecmwf": 74.5,
+      "hrrr": 75.2,
       "metar": null,
-      "best": 79.1,
+      "best": 75.2,
       "best_source": "hrrr"
     },
     {
@@ -53,13 +53,13 @@ Minimal market files in `data/markets/{city}_{date}.json`:
       "best_source": "hrrr"
     },
     {
-      "ts": "2026-03-30T12:00:00Z",
-      "horizon": "D+2",
-      "hours_left": 60.0,
-      "ecmwf": 74.5,
-      "hrrr": 75.2,
+      "ts": "2026-04-01T12:00:00Z",
+      "horizon": "D+0",
+      "hours_left": 12.0,
+      "ecmwf": 80.3,
+      "hrrr": 79.1,
       "metar": null,
-      "best": 75.2,
+      "best": 79.1,
       "best_source": "hrrr"
     }
   ]
@@ -72,6 +72,8 @@ Minimal market files in `data/markets/{city}_{date}.json`:
 - Files without `pnl` are excluded from reports
 - Calibration only reads these four fields
 
+**Snapshot ordering:** D+2 first, D+0 last. Calibration uses `vals[-1]` (last snapshot), so D+0 (most accurate) is used for error calculation.
+
 ## Data Flow
 
 For each (city, date) pair:
@@ -83,7 +85,7 @@ For each (city, date) pair:
      ?latitude={lat}&longitude={lon}
      &start_date={date}&end_date={date}
      &daily=temperature_2m_max
-     &temperature_unit={fahrenheit|celsius}
+     &temperature_unit={fahrenheit if unit=="F" else celsius}
      &timezone=auto
    ```
 3. **Fetch forecasts** (Previous Runs API, hourly → max):
@@ -92,7 +94,7 @@ For each (city, date) pair:
      ?latitude={lat}&longitude={lon}
      &start_date={date}&end_date={date}
      &hourly=temperature_2m,temperature_2m_previous_day1,temperature_2m_previous_day2
-     &temperature_unit={fahrenheit|celsius}
+     &temperature_unit={fahrenheit if unit=="F" else celsius}
      &timezone={city_timezone}
      &models=ecmwf_ifs025
    ```
@@ -123,7 +125,7 @@ For each (city, date) pair:
 **Script:** `backfill_calibration.py`
 
 ```bash
-# Default: last 27 days
+# Default: last 30 days
 python backfill_calibration.py
 
 # Custom date range
@@ -134,7 +136,7 @@ python backfill_calibration.py --dry-run
 ```
 
 **Arguments:**
-- `--start YYYY-MM-DD` — Start date (default: 27 days ago)
+- `--start YYYY-MM-DD` — Start date (default: 30 days ago)
 - `--end YYYY-MM-DD` — End date (default: yesterday)
 - `--dry-run` — Print plan without fetching or writing
 
@@ -148,6 +150,6 @@ All 20 cities from bot_v2.py LOCATIONS:
 
 ## Expected Output
 
-27 days × 20 cities = 540 market files
+30 days × 20 cities = 600 market files
 
-Calibration will then have sufficient data (27 per city) to calculate sigma for all city/source pairs, well above the CALIBRATION_MIN threshold of 3-4.
+Calibration will then have sufficient data (30 per city) to calculate sigma for all city/source pairs, meeting the default CALIBRATION_MIN threshold of 30. (Note: Railway deployment uses CALIBRATION_MIN=3 via env var.)
