@@ -19,6 +19,7 @@ import math
 import time
 import requests
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 # =============================================================================
@@ -38,7 +39,7 @@ MAX_HOURS        = _cfg.get("max_hours", 72.0)
 KELLY_FRACTION   = _cfg.get("kelly_fraction", 0.25)
 MAX_SLIPPAGE     = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL    = _cfg.get("scan_interval", 3600)   # every hour
-CALIBRATION_MIN  = _cfg.get("calibration_min", 30)
+CALIBRATION_MIN  = _cfg.get("calibration_min", 3)  # min resolved markets needed per city/source
 VC_KEY           = _cfg.get("vc_key", "")
 
 SIGMA_F = 2.0
@@ -97,6 +98,24 @@ MONTHS = ["january","february","march","april","may","june",
 def norm_cdf(x):
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
+# =============================================================================
+# CALIBRATION
+# =============================================================================
+
+def get_local_hour(ts, city) -> int:
+    """Get local hour (0-23) from timestamp (int Unix or ISO str) for a city."""
+    if not ts or city not in TIMEZONES:
+        return -1
+    try:
+        # Handle ISO string or Unix timestamp
+        if isinstance(ts, str):
+            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        else:
+            dt = datetime.fromtimestamp(int(ts), tz=ZoneInfo(TIMEZONES[city]))
+        return dt.astimezone(ZoneInfo(TIMEZONES[city])).hour
+    except (ValueError, KeyError, TypeError, OSError):
+        return -1
+
 def bucket_prob(forecast, t_low, t_high, sigma=None):
     """For regular buckets — exact match. For edge buckets — normal distribution."""
     s = sigma or 2.0
@@ -148,10 +167,16 @@ def run_calibration(markets):
             group = [m for m in resolved if m["city"] == city]
             errors = []
             for m in group:
-                vals = [s.get(source) for s in m.get("forecast_snapshots", [])
-                        if s.get(source) is not None]
-                if vals:
-                    errors.append(abs(vals[-1] - m["actual_temp"]))
+                # Use any snapshot with the source value
+                snapshots = m.get("forecast_snapshots", [])
+                val = None
+                for s in reversed(snapshots):
+                    if s.get(source) is not None:
+                        val = s[source]
+                        break
+                if val is None:
+                    continue
+                errors.append(abs(val - m["actual_temp"]))
             if len(errors) < CALIBRATION_MIN:
                 continue
             mae  = sum(errors) / len(errors)
@@ -658,6 +683,7 @@ def scan_and_update():
                 balance += fc_delta
                 closed += 1
                 fc_pnl = mkt["position"]["pnl"]
+                apply_closure_to_state(state, fc_pnl)
                 print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if fc_pnl>=0 else ''}{fc_pnl:.2f}")
 
             # --- OPEN POSITION ---
@@ -1009,6 +1035,7 @@ def monitor_positions():
             pos["exit_price"]   = current_price
             pos["pnl"]          = pnl
             pos["status"]       = "closed"
+            apply_closure_to_state(state, pnl)
             closed += 1
             print(f"  [{reason}] {city_name} {mkt['date']} | entry ${entry:.3f} exit ${current_price:.3f} | {hours_left:.0f}h left | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
             save_market(mkt)
@@ -1095,5 +1122,12 @@ if __name__ == "__main__":
     elif cmd == "report":
         _cal = load_cal()
         print_report()
+    elif cmd == "calibrate":
+        # Run calibration standalone
+        all_mkts = []
+        for f in MARKETS_DIR.glob("*.json"):
+            all_mkts.append(json.loads(f.read_text()))
+        _cal = run_calibration(all_mkts)
+        print(f"Calibration complete: {len(_cal)} sources calibrated")
     else:
-        print("Usage: python weatherbet.py [run|status|report]")
+        print("Usage: python weatherbet.py [run|status|report|calibrate]")
