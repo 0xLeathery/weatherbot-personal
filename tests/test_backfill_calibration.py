@@ -125,3 +125,33 @@ def test_fetch_ecmwf_forecasts_uses_timezone():
 
     call_url = mock_get.call_args[0][0]
     assert "timezone=Asia%2FTokyo" in call_url or "timezone=Asia/Tokyo" in call_url
+
+
+def test_fetch_hrrr_forecasts_us_city():
+    """HRRR fetched for US cities using gfs_seamless model."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "hourly": {
+            "temperature_2m": [72, 78, 75],
+            "temperature_2m_previous_day1": [70, 74, 72],
+            "temperature_2m_previous_day2": [68, 72, 70],
+        }
+    }
+
+    with patch('backfill_calibration.requests.get', return_value=mock_response) as mock_get:
+        from backfill_calibration import fetch_hrrr_forecasts
+        result = fetch_hrrr_forecasts("chicago", "2026-04-01")
+
+    call_url = mock_get.call_args[0][0]
+    assert "models=gfs_seamless" in call_url
+    assert result == {"d0": 78, "d1": 74, "d2": 72}
+
+
+def test_fetch_hrrr_forecasts_non_us_returns_none():
+    """Non-US cities return None immediately, no API call."""
+    with patch('backfill_calibration.requests.get') as mock_get:
+        from backfill_calibration import fetch_hrrr_forecasts
+        result = fetch_hrrr_forecasts("london", "2026-04-01")
+
+    mock_get.assert_not_called()
+    assert result is None

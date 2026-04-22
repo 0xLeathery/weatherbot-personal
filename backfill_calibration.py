@@ -81,6 +81,39 @@ def fetch_ecmwf_forecasts(city_slug: str, date_str: str) -> dict | None:
         return None
 
 
+def fetch_hrrr_forecasts(city_slug: str, date_str: str) -> dict | None:
+    """Fetch HRRR/GFS forecasts for US cities only."""
+    loc = LOCATIONS.get(city_slug)
+    if not loc or loc.get("region") != "us":
+        return None
+
+    tz = TIMEZONES.get(city_slug, "UTC")
+    temp_unit = "fahrenheit" if loc["unit"] == "F" else "celsius"
+    url = (
+        f"https://previous-runs-api.open-meteo.com/v1/forecast"
+        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"&start_date={date_str}&end_date={date_str}"
+        f"&hourly=temperature_2m,temperature_2m_previous_day1,temperature_2m_previous_day2"
+        f"&temperature_unit={temp_unit}"
+        f"&timezone={tz}"
+        f"&models=gfs_seamless"
+    )
+
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        hourly = data.get("hourly", {})
+        return {
+            "d0": _max_filtered(hourly.get("temperature_2m", [])),
+            "d1": _max_filtered(hourly.get("temperature_2m_previous_day1", [])),
+            "d2": _max_filtered(hourly.get("temperature_2m_previous_day2", [])),
+        }
+    except Exception as e:
+        print(f"    [API Error] HRRR {city_slug} {date_str}: {e}")
+        return None
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Backfill calibration data from Open-Meteo APIs"
