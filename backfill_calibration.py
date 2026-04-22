@@ -3,6 +3,8 @@
 Backfill historical calibration data from Open-Meteo APIs.
 Creates minimal market files with forecast_snapshots and actual_temp.
 """
+from __future__ import annotations
+
 import argparse
 import json
 import time
