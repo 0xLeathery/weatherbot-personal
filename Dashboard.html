@@ -1194,7 +1194,7 @@ function App({ data, lastFetched, onRefresh, fetchError, cryptoData }) {
       const isF = !data.markets.some((m) => m.city === city) || data.markets.find((m) => m.city === city)?.unit === "F";
       const def = isF ? data.SIGMA_F_DEFAULT : data.SIGMA_C_DEFAULT;
       const drift = def ? ((v.sigma - def) / def) * 100 : 0;
-      return { key, city, source, ...v, drift, flagged: Math.abs(drift) > 25 };
+      return { key, city, source, sigma: v.sigma, n_samples: v.n ?? 0, last_updated: v.updated_at ?? null, drift, flagged: Math.abs(drift) > 25 };
     }).sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
   }, [data.calibration, data.markets]);
 

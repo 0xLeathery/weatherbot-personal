@@ -39,7 +39,7 @@ MAX_HOURS        = _cfg.get("max_hours", 72.0)
 KELLY_FRACTION   = _cfg.get("kelly_fraction", 0.25)
 MAX_SLIPPAGE     = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL    = _cfg.get("scan_interval", 3600)   # every hour
-CALIBRATION_MIN  = _cfg.get("calibration_min", 3)  # min resolved markets needed per city/source
+CALIBRATION_MIN  = _cfg.get("calibration_min", 1)  # min resolved markets needed per city/source
 VC_KEY           = _cfg.get("vc_key", "")
 
 SIGMA_F = 2.0
