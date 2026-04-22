@@ -155,3 +155,77 @@ def test_fetch_hrrr_forecasts_non_us_returns_none():
 
     mock_get.assert_not_called()
     assert result is None
+
+
+def test_build_market_file_us_city():
+    """US city: best=hrrr when available."""
+    from backfill_calibration import build_market_file
+
+    result = build_market_file(
+        city_slug="chicago",
+        date_str="2026-04-01",
+        actual_temp=78.5,
+        ecmwf={"d0": 80.3, "d1": 78.3, "d2": 74.5},
+        hrrr={"d0": 79.1, "d1": 77.5, "d2": 75.2},
+    )
+
+    assert result["city"] == "chicago"
+    assert result["date"] == "2026-04-01"
+    assert result["status"] == "resolved"
+    assert result["actual_temp"] == 78.5
+
+    snaps = result["forecast_snapshots"]
+    assert len(snaps) == 3
+
+    # D+2 first, D+0 last
+    assert snaps[0]["horizon"] == "D+2"
+    assert snaps[0]["best"] == 75.2
+    assert snaps[0]["best_source"] == "hrrr"
+
+    assert snaps[2]["horizon"] == "D+0"
+    assert snaps[2]["best"] == 79.1
+
+
+def test_build_market_file_international_city():
+    """International city: best=ecmwf, hrrr=None."""
+    from backfill_calibration import build_market_file
+
+    result = build_market_file(
+        city_slug="london",
+        date_str="2026-04-01",
+        actual_temp=18.0,
+        ecmwf={"d0": 17.5, "d1": 16.0, "d2": 14.0},
+        hrrr=None,
+    )
+
+    snaps = result["forecast_snapshots"]
+    assert snaps[2]["hrrr"] is None
+    assert snaps[2]["best"] == 17.5
+    assert snaps[2]["best_source"] == "ecmwf"
+
+
+def test_build_market_file_snapshot_timestamps():
+    """Snapshots have correct ts and hours_left."""
+    from backfill_calibration import build_market_file
+
+    result = build_market_file(
+        city_slug="chicago",
+        date_str="2026-04-01",
+        actual_temp=78.5,
+        ecmwf={"d0": 80, "d1": 78, "d2": 75},
+        hrrr={"d0": 79, "d1": 77, "d2": 74},
+    )
+
+    snaps = result["forecast_snapshots"]
+
+    # D+2: 60 hours before market date noon
+    assert snaps[0]["hours_left"] == 60.0
+    assert "2026-03-30" in snaps[0]["ts"]
+
+    # D+1: 36 hours
+    assert snaps[1]["hours_left"] == 36.0
+    assert "2026-03-31" in snaps[1]["ts"]
+
+    # D+0: 12 hours
+    assert snaps[2]["hours_left"] == 12.0
+    assert "2026-04-01" in snaps[2]["ts"]

@@ -114,6 +114,57 @@ def fetch_hrrr_forecasts(city_slug: str, date_str: str) -> dict | None:
         return None
 
 
+def build_market_file(
+    city_slug: str,
+    date_str: str,
+    actual_temp: float,
+    ecmwf: dict,
+    hrrr: dict | None,
+) -> dict:
+    """Build minimal market file structure for calibration."""
+    loc = LOCATIONS.get(city_slug, {})
+    is_us = loc.get("region") == "us"
+
+    # Parse market date to compute snapshot timestamps
+    market_date = datetime.strptime(date_str, "%Y-%m-%d")
+
+    snapshots = []
+    for horizon, key, hours_back in [("D+2", "d2", 48), ("D+1", "d1", 24), ("D+0", "d0", 0)]:
+        # Snapshot taken at noon, hours_left is time until market date noon
+        snap_dt = market_date - timedelta(hours=hours_back)
+        hours_left = 60.0 - (24.0 * (2 - int(key[1])))  # D+2=60, D+1=36, D+0=12
+
+        ecmwf_val = ecmwf.get(key) if ecmwf else None
+        hrrr_val = hrrr.get(key) if hrrr else None
+
+        # best = HRRR if US and available, else ECMWF
+        if is_us and hrrr_val is not None:
+            best = hrrr_val
+            best_source = "hrrr"
+        else:
+            best = ecmwf_val
+            best_source = "ecmwf"
+
+        snapshots.append({
+            "ts": snap_dt.strftime("%Y-%m-%dT12:00:00Z"),
+            "horizon": horizon,
+            "hours_left": hours_left,
+            "ecmwf": ecmwf_val,
+            "hrrr": hrrr_val,
+            "metar": None,
+            "best": best,
+            "best_source": best_source,
+        })
+
+    return {
+        "city": city_slug,
+        "date": date_str,
+        "status": "resolved",
+        "actual_temp": actual_temp,
+        "forecast_snapshots": snapshots,
+    }
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Backfill calibration data from Open-Meteo APIs"
