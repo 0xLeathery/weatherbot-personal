@@ -13,7 +13,7 @@ def test_default_date_range():
         args = parse_args()
         today = date.today()
         assert args.end == today - timedelta(days=1)
-        assert args.start == today - timedelta(days=31)
+        assert args.start == today - timedelta(days=30)
         assert args.dry_run is False
 
 

@@ -4,12 +4,8 @@ Backfill historical calibration data from Open-Meteo APIs.
 Creates minimal market files with forecast_snapshots and actual_temp.
 """
 import argparse
-import json
-import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-
-import requests
 
 from bot_v2 import LOCATIONS, TIMEZONES
 
@@ -24,7 +20,7 @@ def parse_args():
     parser.add_argument(
         "--start",
         type=lambda s: datetime.strptime(s, "%Y-%m-%d").date(),
-        default=today - timedelta(days=31),
+        default=today - timedelta(days=30),
         help="Start date YYYY-MM-DD (default: 30 days ago)",
     )
     parser.add_argument(
