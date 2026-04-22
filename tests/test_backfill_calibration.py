@@ -366,3 +366,21 @@ def test_backfill_dry_run_no_writes(tmp_path):
 
     assert stats["created"] == 0
     assert not (tmp_path / "chicago_2026-04-01.json").exists()
+
+
+def test_main_runs_backfill(tmp_path):
+    """main() parses args and runs backfill."""
+    mock_backfill = MagicMock(return_value={"created": 10, "skipped": 5, "failed": 0})
+
+    with patch.object(sys, 'argv', [
+        'backfill_calibration.py',
+        '--start', '2026-04-01',
+        '--end', '2026-04-02',
+    ]), patch('backfill_calibration.backfill', mock_backfill):
+        from backfill_calibration import main
+        main()
+
+    mock_backfill.assert_called_once()
+    call_kwargs = mock_backfill.call_args[1]
+    assert call_kwargs['start'] == date(2026, 4, 1)
+    assert call_kwargs['end'] == date(2026, 4, 2)

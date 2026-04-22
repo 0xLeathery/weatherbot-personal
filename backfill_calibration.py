@@ -272,6 +272,30 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
-    print(f"Backfill: {args.start} to {args.end}")
+
+    print("=" * 60)
+    print("  CALIBRATION BACKFILL")
+    print("=" * 60)
+    print(f"  Range: {args.start} to {args.end}")
+    print(f"  Cities: {len(LOCATIONS)}")
+    print(f"  Dry run: {args.dry_run}")
+
+    stats = backfill(
+        start=args.start,
+        end=args.end,
+        cities=list(LOCATIONS.keys()),
+        dry_run=args.dry_run,
+    )
+
+    print("\n" + "=" * 60)
+    print("  SUMMARY")
+    print("=" * 60)
+    print(f"  Created: {stats['created']}")
+    print(f"  Skipped: {stats['skipped']}")
+    print(f"  Failed:  {stats['failed']}")
+
+
+if __name__ == "__main__":
+    main()
