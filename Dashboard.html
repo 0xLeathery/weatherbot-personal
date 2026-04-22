@@ -641,8 +641,8 @@ async function loadData() {
     for (const [k, v] of Object.entries(calibration)) {
       calib[k] = {
         sigma: v.sigma,
-        n_samples: v.n_samples ?? 0,
-        last_updated: v.last_updated ?? null,
+        n_samples: v.n ?? 0,
+        last_updated: v.updated_at ?? null,
       };
     }
   }
