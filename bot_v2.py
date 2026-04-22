@@ -246,23 +246,43 @@ def get_metar(city_slug):
     return None
 
 def get_actual_temp(city_slug, date_str):
-    """Actual temperature via Visual Crossing for closed markets."""
+    """Fetch actual high temp. Tries Visual Crossing first, falls back to Open-Meteo."""
     loc = LOCATIONS[city_slug]
-    station = loc["station"]
     unit = loc["unit"]
-    vc_unit = "us" if unit == "F" else "metric"
+
+    # Try Visual Crossing first (if key is set)
+    if VC_KEY:
+        vc_unit = "us" if unit == "F" else "metric"
+        url = (
+            f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
+            f"/{loc['station']}/{date_str}/{date_str}"
+            f"?unitGroup={vc_unit}&key={VC_KEY}&include=days&elements=tempmax"
+        )
+        try:
+            data = requests.get(url, timeout=(5, 8)).json()
+            days = data.get("days", [])
+            if days and days[0].get("tempmax") is not None:
+                return round(float(days[0]["tempmax"]), 1)
+        except Exception as e:
+            print(f"  [VC] {city_slug} {date_str}: {e}")
+
+    # Fallback to Open-Meteo
+    temp_unit = "fahrenheit" if unit == "F" else "celsius"
     url = (
-        f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
-        f"/{station}/{date_str}/{date_str}"
-        f"?unitGroup={vc_unit}&key={VC_KEY}&include=days&elements=tempmax"
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"&start_date={date_str}&end_date={date_str}"
+        f"&daily=temperature_2m_max&temperature_unit={temp_unit}"
+        f"&timezone=auto"
     )
     try:
         data = requests.get(url, timeout=(5, 8)).json()
-        days = data.get("days", [])
-        if days and days[0].get("tempmax") is not None:
-            return round(float(days[0]["tempmax"]), 1)
+        temps = data.get("daily", {}).get("temperature_2m_max", [])
+        if temps and temps[0] is not None:
+            return round(float(temps[0]), 1)
     except Exception as e:
-        print(f"  [VC] {city_slug} {date_str}: {e}")
+        print(f"  [OPEN-METEO] {city_slug} {date_str}: {e}")
+
     return None
 
 def check_market_resolved(market_id):
