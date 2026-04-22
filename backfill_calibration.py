@@ -31,6 +31,7 @@ def fetch_actual_temp(city_slug: str, date_str: str) -> float | None:
 
     try:
         r = requests.get(url, timeout=10)
+        r.raise_for_status()
         data = r.json()
         temps = data.get("daily", {}).get("temperature_2m_max", [])
         if temps and temps[0] is not None:
