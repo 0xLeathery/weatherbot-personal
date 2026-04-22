@@ -283,3 +283,12 @@ def test_should_skip_nonexistent_file(tmp_path):
 
     market_file = tmp_path / "nonexistent.json"
     assert should_skip(market_file) is False
+
+
+def test_should_skip_corrupt_json(tmp_path):
+    """Don't skip if file contains invalid JSON."""
+    from backfill_calibration import should_skip
+
+    market_file = tmp_path / "corrupt.json"
+    market_file.write_text("{ not valid json")
+    assert should_skip(market_file) is False
