@@ -1335,7 +1335,7 @@ function App({ data, lastFetched, onRefresh, fetchError, cryptoData }) {
         <KpiTile
           label="Equity"
           value={fmtUSD(equityMark)}
-          sub={`peak ${fmtUSD(data.state.peak_balance, 0)} · mark-to-market`}
+          sub={`cash ${fmtUSD(data.state.balance, 0)} + reserved ${fmtUSD(reservedCost, 0)} + PnL ${fmtUSD(unrealizedTotal, 0)}`}
           accent={equityMark >= data.state.starting_balance ? "var(--pos)" : "var(--neg)"}
         />
         <KpiTile
