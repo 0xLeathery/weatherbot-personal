@@ -41,6 +41,7 @@ KELLY_FRACTION   = _cfg.get("kelly_fraction", 0.25)
 MAX_SLIPPAGE     = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL    = _cfg.get("scan_interval", 3600)   # every hour
 CALIBRATION_MIN  = _cfg.get("calibration_min", 1)  # min resolved markets needed per city/source
+SPREAD_THRESHOLD = _cfg.get("spread_threshold", 2.0)  # HRRR-ECMWF spread to trigger entry
 VC_KEY           = _cfg.get("vc_key", "")
 
 SIGMA_F = 2.0
@@ -687,17 +688,23 @@ def scan_and_update():
                 apply_closure_to_state(state, fc_pnl)
                 print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if fc_pnl>=0 else ''}{fc_pnl:.2f}")
 
-            # --- OPEN POSITION ---
-            if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
-                sigma = get_sigma(city_slug, best_source or "ecmwf")
+            # --- OPEN POSITION (spread strategy) ---
+            # Entry: when HRRR - ECMWF > threshold, bet on HRRR's bucket
+            ecmwf_temp = snap.get("ecmwf")
+            hrrr_temp = snap.get("hrrr")
+            forecast_spread = (hrrr_temp - ecmwf_temp) if (hrrr_temp and ecmwf_temp) else 0
+
+            if not mkt.get("position") and hours >= MIN_HOURS and forecast_spread > SPREAD_THRESHOLD:
+                # Use HRRR as target (betting actual will be closer to HRRR)
+                target_temp = hrrr_temp
+                sigma = get_sigma(city_slug, "hrrr")
                 best_signal = None
 
-                # Find exactly ONE bucket that matches the forecast
-                # If forecast doesn't fit any bucket cleanly — skip this market
+                # Find bucket containing HRRR's forecast
                 matched_bucket = None
                 for o in outcomes:
                     t_low, t_high = o["range"]
-                    if in_bucket(forecast_temp, t_low, t_high):
+                    if in_bucket(target_temp, t_low, t_high):
                         matched_bucket = o
                         break
 
@@ -711,7 +718,7 @@ def scan_and_update():
 
                     # All filters — if any fails, skip this market entirely
                     if volume >= MIN_VOLUME:
-                        p  = bucket_prob(forecast_temp, t_low, t_high, sigma)
+                        p  = bucket_prob(target_temp, t_low, t_high, sigma)
                         ev = calc_ev(p, ask)
                         if ev >= MIN_EV:
                             kelly = calc_kelly(p, ask)
@@ -730,8 +737,10 @@ def scan_and_update():
                                     "p":            round(p, 4),
                                     "ev":           round(ev, 4),
                                     "kelly":        round(kelly, 4),
-                                    "forecast_temp":forecast_temp,
-                                    "forecast_src": best_source,
+                                    "forecast_temp":target_temp,
+                                    "forecast_src": "hrrr",
+                                    "ecmwf_temp":   ecmwf_temp,
+                                    "spread_at_entry": round(forecast_spread, 1),
                                     "sigma":        sigma,
                                     "opened_at":    snap.get("ts"),
                                     "status":       "open",
@@ -769,9 +778,10 @@ def scan_and_update():
                         state["total_trades"] += 1
                         new_pos += 1
                         bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
+                        spread_info = f"spread +{best_signal.get('spread_at_entry', 0):.1f}°"
                         print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
                               f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
-                              f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
+                              f"${best_signal['cost']:.2f} | {spread_info}")
 
             # Market closed by time
             if hours < 0.5 and mkt["status"] == "open":
