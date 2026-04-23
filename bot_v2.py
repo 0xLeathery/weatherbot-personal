@@ -21,6 +21,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
+from typing import Optional
 
 # =============================================================================
 # CONFIG
@@ -488,15 +489,15 @@ def apply_closure_to_state(state, pnl):
         state["losses"] = state.get("losses", 0) + 1
 
 
-def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> float:
+def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> Optional[float]:
     """Close position if forecast has shifted outside its bucket by ≥ buffer degrees.
 
     Only fires on positions with status == 'open'. Returns the balance delta
-    (cost + pnl) if a close occurred, 0.0 otherwise. Mutates mkt['position'].
+    (cost + pnl) if a close occurred, None otherwise. Mutates mkt['position'].
     """
     pos = mkt.get("position")
     if not pos or pos.get("status") != "open" or forecast_temp is None:
-        return 0.0
+        return None
     old_bucket_low  = pos["bucket_low"]
     old_bucket_high = pos["bucket_high"]
     buffer = 2.0 if loc["unit"] == "F" else 1.0
@@ -512,7 +513,7 @@ def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> floa
             pos["pnl"]          = pnl
             pos["status"]       = "closed"
             return pos["cost"] + pnl
-    return 0.0
+    return None
 
 
 def take_forecast_snapshot(city_slug, dates):
@@ -679,7 +680,7 @@ def scan_and_update():
 
             # --- CLOSE POSITION if forecast shifted 2+ degrees ---
             fc_delta = _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap)
-            if fc_delta:
+            if fc_delta is not None:
                 balance += fc_delta
                 closed += 1
                 fc_pnl = mkt["position"]["pnl"]
@@ -1013,6 +1014,7 @@ def monitor_positions():
             pos["stop_price"] = entry
             pos["trailing_activated"] = True
             print(f"  [TRAILING] {city_name} {mkt['date']} — stop moved to breakeven ${entry:.3f}")
+            save_market(mkt)
 
         # Check take-profit
         take_triggered = take_profit is not None and current_price >= take_profit

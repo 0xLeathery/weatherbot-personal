@@ -36,20 +36,20 @@ _FAR_FORECAST = 85.0
 def test_skips_already_closed_position():
     mkt = _mkt(pos_status="closed", existing_pnl=-3.0)
     delta = _try_close_forecast_changed(mkt, _OUTCOMES, _FAR_FORECAST, _LOC, _SNAP)
-    assert delta == 0.0
+    assert delta is None
     assert mkt["position"]["pnl"] == -3.0  # not overwritten
 
 
 def test_skips_when_no_position():
     mkt = {"status": "open", "position": None}
     delta = _try_close_forecast_changed(mkt, _OUTCOMES, _FAR_FORECAST, _LOC, _SNAP)
-    assert delta == 0.0
+    assert delta is None
 
 
 def test_skips_when_forecast_none():
     mkt = _mkt(pos_status="open")
     delta = _try_close_forecast_changed(mkt, _OUTCOMES, None, _LOC, _SNAP)
-    assert delta == 0.0
+    assert delta is None
 
 
 def test_closes_open_position_when_forecast_far():
@@ -67,5 +67,25 @@ def test_skips_open_position_when_forecast_still_in_bucket():
     mkt = _mkt(pos_status="open")
     near_forecast = 73.0  # inside 70–75 bucket
     delta = _try_close_forecast_changed(mkt, _OUTCOMES, near_forecast, _LOC, _SNAP)
-    assert delta == 0.0
+    assert delta is None
     assert mkt["position"]["status"] == "open"
+
+
+def test_returns_zero_on_total_loss_close():
+    """When current_price == 0, pnl = -cost, so cost + pnl == 0.0.
+
+    This is the edge case where the caller's `if fc_delta:` check is falsy
+    even though a close actually occurred.
+    """
+    outcomes_total_loss = [{"market_id": "mkt_1", "price": 0.0}]
+    mkt = _mkt(pos_status="open")
+    # _mkt uses entry_price=0.50, shares=10, cost=50.0
+    # pnl = (0.0 - 0.50) * 10 = -5.0; delta = 50.0 + (-5.0) = 45.0 ≠ 0
+    # Need cost == -pnl, so set cost=5.0, shares=10, entry=0.50 => pnl=-5.0
+    mkt["position"]["cost"] = 5.0
+    delta = _try_close_forecast_changed(mkt, outcomes_total_loss, _FAR_FORECAST, _LOC, _SNAP)
+    assert delta == 0.0
+    # But the position IS closed — this is the gotcha
+    assert mkt["position"]["status"] == "closed"
+    assert mkt["position"]["close_reason"] == "forecast_changed"
+    assert mkt["position"]["pnl"] == pytest.approx(-5.0)

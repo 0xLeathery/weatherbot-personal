@@ -82,3 +82,32 @@ def test_ledger_prefers_market_pnl_for_resolved_else_position_pnl():
     result = check_ledger(state, markets)
     assert result.ok is True
     assert result.balance_from_markets == 1010.0
+
+
+def test_ledger_detects_missing_open_position_files():
+    """When market files for open positions are deleted, drift goes negative.
+
+    Simulates the real-world scenario where 8 open-position files were lost:
+    balance_on_disk correctly reflects all 57 positions opened, but only
+    49 market files remain. The missing open costs make balance_from_markets
+    artificially high, producing negative drift.
+    """
+    # State balance reflects: 1000 - (57 * 20) + 625.08 (realized closures) = 485.08
+    state = {"balance": 485.08, "starting_balance": 1000.0, "peak_balance": 1000.0}
+    # Only 49 of 57 market files exist: 38 closed + 11 open
+    markets = []
+    # 38 realized positions with total pnl = -134.92
+    for i in range(38):
+        markets.append(_m(pos_pnl=-134.92 / 38))
+    # 11 remaining open positions with $20 each = $220 reserved
+    for i in range(11):
+        markets.append(_m(status="open", pos_status="open", pos_pnl=None, cost=20.0))
+    # 8 open positions' files are missing — their $160 cost is absent from open_cost_sum
+
+    result = check_ledger(state, markets)
+    assert result.ok is False
+    # balance_from_markets = 1000 + (-134.92) - 220 = 645.08
+    assert result.balance_from_markets == pytest.approx(645.08)
+    # drift = 485.08 - 645.08 = -160.00
+    assert result.drift == pytest.approx(-160.0)
+    assert result.open_cost == pytest.approx(220.0)
