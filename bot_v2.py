@@ -490,10 +490,11 @@ def compute_position_price(outcomes, position):
 
 
 def apply_closure_to_state(state, pnl):
-    """Increment wins/losses counters for a closed position.
+    """Update wins/losses/total_trades counters in-place after a closure.
 
-    Used by both the stop-loss branch and the auto-resolution branch so
+    pnl is the realized PnL of the closed position. Counters mutate so that
     every realized closure ends up in state.wins or state.losses.
+    state["realized_pnl"] also accumulates the signed pnl (rounded to 2dp).
     """
     if pnl is None:
         return
@@ -501,6 +502,7 @@ def apply_closure_to_state(state, pnl):
         state["wins"] = state.get("wins", 0) + 1
     else:
         state["losses"] = state.get("losses", 0) + 1
+    state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + pnl, 2)
 
 
 def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> Optional[float]:
