@@ -252,6 +252,8 @@ One new component (the only v1 dashboard surface): a header strip rendered above
 
 **No reset row in the ledger:** if no `type == "reset"` row exists (e.g., first deploy after backfill, before `tools/reset.py` has ever been run), fall back to "all-time" scope and surface a small `no reset boundary detected` hint next to the date prefix. Don't silently filter to nothing.
 
+**Malformed JSONL lines:** the parser skips lines that fail JSON parse, logs one `console.warn` per bad line with the line number, and continues. The strip renders from successfully-parsed rows. A partial trailing line from a mid-write crash must not take the dashboard down.
+
 **Output:** one line.
 
 ```
@@ -291,7 +293,7 @@ Dashboard rendering is excluded — no JS test infrastructure exists. Pure data 
 
 | Risk | Mitigation |
 |---|---|
-| Crash between `record_closure` and `save_state` | Narrow window (two adjacent calls). The ledger row is real (the position was closed in memory before the crash) but `state.json` and the market file did not save. On restart, the position re-loads as open, gets re-evaluated, and may close again — producing a second ledger row for what is effectively two close events with different exit prices. Acceptable in v1; manual reconciliation only if observed. Write-order invariant ensures we never lose the row in exchange for accepting the rare duplicate. |
+| Crash between `record_closure` and `save_state` | Narrow window (two adjacent calls). The ledger row is real (the position was closed in memory before the crash) but `state.json` and the market file did not save. On restart, the position re-loads as open, gets re-evaluated, and may close again — producing a second ledger row for what is effectively two close events with different exit prices. Acceptable in v1; manual reconciliation only if observed. **If observed:** the duplicate pair is identifiable by matching `(market_id, opened_at)` with two distinct `closed_at`/`exit_price` values — delete the earlier row (the one whose state never persisted) by hand from `closures.jsonl`. Write-order invariant ensures we never lose the row in exchange for accepting the rare duplicate. |
 | User runs `walkforward_test.py --emit-baseline` against a different `data-dir`, baseline reflects test markets | `--emit-baseline` records `source` path; spec note: production baseline runs against the production market archive only. |
 | Two bots writing the same ledger file | Only `bot_v2.py` writes `data/closures.jsonl`. `crypto_bot.py` is abandoned and is not modified by this spec. If a second writer is ever introduced, switch to per-bot ledger files. |
 | Ledger grows unbounded | At ~150 closures/month per the current strategy, file growth is ~50KB/month. No rotation needed in v1. |
