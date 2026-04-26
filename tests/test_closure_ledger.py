@@ -218,3 +218,37 @@ class TestAllFourPathsRecordClosure:
         assert len(closure_rows) == 1
         assert closure_rows[0]["close_reason"] == "take_profit"
         assert closure_rows[0]["pnl"] == 5.00
+
+
+class TestWriteOrderInvariant:
+    """Spec invariant: ledger row appended BEFORE save_state. If save_state
+    raises, the row must already be on disk — the row is the source of
+    truth for closures, not state.json."""
+
+    def test_ledger_row_persists_when_save_state_raises(self, tmp_path, monkeypatch):
+        from bot_v2 import monitor_positions
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        monkeypatch.setattr("bot_v2.LEDGER_FILE", tmp_path / "closures.jsonl")
+        (tmp_path / "markets").mkdir()
+
+        pos = _make_position(entry_price=0.50, shares=20.0, cost=10.0, stop_price=0.40)
+        mkt = _make_market(position=pos)
+        (tmp_path / "markets" / "dallas_2026-05-01.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", balance=990.0, total_trades=1)
+
+        def boom(*a, **kw):
+            raise RuntimeError("disk full")
+        monkeypatch.setattr("bot_v2.save_state", boom)
+
+        with patch("bot_v2.requests.get", return_value=_mock_gamma_response("mkt_1", best_bid=0.40)):
+            try:
+                monitor_positions()
+            except RuntimeError:
+                pass  # expected
+
+        # The ledger row landed on disk despite the save_state failure.
+        ledger = (tmp_path / "closures.jsonl").read_text().strip()
+        assert ledger
+        rows = [json.loads(l) for l in ledger.split("\n") if l]
+        assert any(r["type"] == "closure" and r["close_reason"] == "stop_loss" for r in rows)
