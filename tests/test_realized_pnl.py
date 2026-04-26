@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bot_v2 import apply_closure_to_state, load_state, monitor_positions
+from bot_v2 import apply_closure_to_state, load_state, maybe_backfill_realized_pnl, monitor_positions
 
 
 # --- helpers ----------------------------------------------------------------
@@ -185,3 +185,114 @@ class TestTakeProfitPathUpdatesRealizedPnL:
         # Per-market pnl matches accumulator (dashboard recompute parity)
         saved = json.loads((tmp_path / "markets" / "dallas_2026-05-01.json").read_text())
         assert saved["position"]["pnl"] == 5.00
+
+
+# --- one-shot self-heal: maybe_backfill_realized_pnl -----------------------
+
+def _closed_market(name, pnl, market_id="mkt_x"):
+    """A market with a closed position carrying a realized pnl."""
+    pos = _make_position()
+    pos["market_id"] = market_id
+    pos["status"] = "closed"
+    pos["pnl"] = pnl
+    mkt = _make_market(position=pos)
+    mkt["market_id"] = market_id
+    mkt["status"] = "closed"
+    mkt["pnl"] = pnl
+    return name, mkt
+
+
+class TestMaybeBackfillRealizedPnL:
+    def test_backfills_when_field_zero_but_wins_or_losses_recorded(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        for name, mkt in [
+            _closed_market("a", 4.20, market_id="mkt_a"),
+            _closed_market("b", -2.50, market_id="mkt_b"),
+            _closed_market("c", -1.10, market_id="mkt_c"),
+        ]:
+            (tmp_path / "markets" / f"{name}.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", wins=1, losses=2, total_trades=3, realized_pnl=0.0)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        maybe_backfill_realized_pnl(state)
+
+        # 4.20 - 2.50 - 1.10 = 0.60
+        assert state["realized_pnl"] == 0.60
+        # Persisted to disk
+        on_disk = json.loads((tmp_path / "state.json").read_text())
+        assert on_disk["realized_pnl"] == 0.60
+
+    def test_skips_when_field_already_populated(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        # Market files would compute to a different number, but the field is already
+        # set — the bot has been running with the new code, don't clobber.
+        for name, mkt in [_closed_market("a", 99.00, market_id="mkt_a")]:
+            (tmp_path / "markets" / f"{name}.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", wins=1, losses=0, total_trades=1, realized_pnl=5.00)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        maybe_backfill_realized_pnl(state)
+
+        assert state["realized_pnl"] == 5.00  # unchanged
+
+    def test_skips_when_no_closures_recorded(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        # Even with stray market files, no recorded wins/losses means we trust
+        # the field is genuinely zero — don't backfill from orphaned files.
+        for name, mkt in [_closed_market("a", 4.20, market_id="mkt_a")]:
+            (tmp_path / "markets" / f"{name}.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", wins=0, losses=0, total_trades=0, realized_pnl=0.0)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        maybe_backfill_realized_pnl(state)
+
+        assert state["realized_pnl"] == 0.0  # unchanged
+
+    def test_idempotent_second_call_is_noop(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        for name, mkt in [_closed_market("a", 3.00, market_id="mkt_a")]:
+            (tmp_path / "markets" / f"{name}.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", wins=1, losses=0, total_trades=1, realized_pnl=0.0)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        maybe_backfill_realized_pnl(state)
+        assert state["realized_pnl"] == 3.00
+
+        # Second call: field is now populated, so the function bails out at the
+        # first guard. No double-counting.
+        maybe_backfill_realized_pnl(state)
+        assert state["realized_pnl"] == 3.00
+
+    def test_skips_markets_without_pnl(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        # One closed (with pnl), one still open (pnl=None) — only the closed one counts.
+        _, closed = _closed_market("a", 2.50, market_id="mkt_a")
+        open_pos = _make_position()
+        open_pos["market_id"] = "mkt_b"
+        open_mkt = _make_market(position=open_pos)
+        open_mkt["market_id"] = "mkt_b"
+        # pnl stays None on the open market
+
+        (tmp_path / "markets" / "a.json").write_text(json.dumps(closed))
+        (tmp_path / "markets" / "b.json").write_text(json.dumps(open_mkt))
+        _write_state(tmp_path / "state.json", wins=1, losses=0, total_trades=2, realized_pnl=0.0)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        maybe_backfill_realized_pnl(state)
+
+        assert state["realized_pnl"] == 2.50  # only the closed one

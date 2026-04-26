@@ -505,6 +505,32 @@ def apply_closure_to_state(state, pnl):
     state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + pnl, 2)
 
 
+def maybe_backfill_realized_pnl(state):
+    """One-shot self-heal: reconstruct state.realized_pnl from market files.
+
+    Triggered only when state.realized_pnl is 0 but wins/losses already
+    show recorded closures — the field was added retroactively to a bot
+    that already had history. Sums pnl across all market files where pnl
+    is set, persists if the value changed. Idempotent: subsequent calls
+    bail at the first guard once the field is non-zero.
+    """
+    if state.get("realized_pnl", 0.0) != 0.0:
+        return
+    if state.get("wins", 0) == 0 and state.get("losses", 0) == 0:
+        return
+
+    markets = load_all_markets()
+    pnls = [m["pnl"] for m in markets if m.get("pnl") is not None]
+    recomputed = round(sum(pnls), 2)
+    if recomputed == 0.0:
+        return
+
+    print(f"[backfill] realized_pnl 0.0 → {recomputed} "
+          f"(reconstructed from {len(pnls)} closures)")
+    state["realized_pnl"] = recomputed
+    save_state(state)
+
+
 def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> Optional[float]:
     """Close position if forecast has shifted outside its bucket by ≥ buffer degrees.
 
@@ -1087,6 +1113,10 @@ def run_loop():
     print(f"  Sources:    ECMWF + HRRR(US) + METAR(D+0)")
     print(f"  Data:       {DATA_DIR.resolve()}")
     print(f"  Ctrl+C to stop\n")
+
+    # One-shot self-heal: if realized_pnl was added after this bot already had
+    # trade history, reconstruct the field from market files. No-op once done.
+    maybe_backfill_realized_pnl(load_state())
 
     last_full_scan = 0
 
