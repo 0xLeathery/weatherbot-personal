@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-26
 **Scope:** `bot_v2.py` (weather/Kalshi bot) only. `crypto_bot.py` is abandoned and out of scope.
-**Status:** Design approved, pending spec review.
+**Status:** Design approved (accumulator-only), pending spec review.
 
 ---
 
@@ -24,17 +24,17 @@ The user wants a number that reflects "profit for this session" — locked-in Pn
 
 ## Goals
 
-- **Canonical realized PnL number** in `state.json`, updated atomically with every closure.
-- **Append-only ledger** of every closure event, sufficient to replay/audit and to drive the equity curve.
-- **Session-scoped semantics** — both reset together with `state.json` and market files. No "lifetime" accumulator.
+- **Canonical realized PnL number** in `state.json`, updated on every closure.
+- **Session-scoped semantics** — wiped on reset along with `state.json` and market files. No "lifetime" accumulator.
 - **Dashboard reads the canonical number**, with a self-consistency check against the per-market sum.
 
 ## Non-Goals
 
-- Lifetime PnL across resets (explicitly rejected by user — "profit for this session").
-- Crypto bot parity.
+- Lifetime PnL across resets (explicitly rejected — "profit for this session").
+- Append-only ledger / per-trade audit log. Considered and rejected on YAGNI grounds: every concrete consumer (equity curve migration, per-period slicing, per-city breakdowns) is itself out of scope for this iteration. Add the ledger when there's a real consumer asking for it.
+- Crypto bot parity (crypto bot is abandoned).
 - Backfill from existing market files (not needed — bot was reset to zero on Apr 23 with no trades since).
-- Migrating the dashboard equity curve to the ledger (follow-up work).
+- Migrating the dashboard equity curve away from market-file scan (follow-up).
 
 ---
 
@@ -56,45 +56,13 @@ The user wants a number that reflects "profit for this session" — locked-in Pn
 
 `realized_pnl` is signed (losses subtract, wins add), rounded to 2 decimals on every increment. It is the sum of `pnl` over all closures since the last reset.
 
-`load_state()` adds `data.setdefault("realized_pnl", 0.0)` so existing state files (post-Apr-23 reset has no closures) silently gain the field.
-
-### `data/realized_ledger.jsonl` — append-only
-
-One JSON object per line, written at the moment of closure:
-
-```json
-{"ts": "2026-04-26T11:09:00Z", "market_id": "kxhighny-26apr26-72", "city": "newyork", "date": "2026-04-26", "reason": "stop_loss", "cost": 18.50, "pnl": -7.40, "balance_after": 992.60, "realized_pnl_after": -7.40}
-```
-
-| Field | Type | Notes |
-|---|---|---|
-| `ts` | ISO-8601 UTC | Time of closure (not market resolution date) |
-| `market_id` | string | Joins back to the market file |
-| `city` | string | Slug, matches `mkt["city"]` |
-| `date` | string | The market's date, matches `mkt["date"]` |
-| `reason` | string | Closed vocabulary — see below |
-| `cost` | float | The position's original cost (so ROI = pnl/cost) |
-| `pnl` | float | Signed, rounded to 2 decimals |
-| `balance_after` | float | `state.balance` after this closure was applied |
-| `realized_pnl_after` | float | `state.realized_pnl` after this closure was applied |
-
-`balance_after` and `realized_pnl_after` are written for self-consistency: replaying the file should reproduce both values exactly.
-
-**Reason vocabulary** (closed set, validated on write):
-- `resolved_win` — market resolved in our favour at expiry
-- `resolved_loss` — market resolved against us at expiry
-- `stop_loss` — early close because price crossed stop threshold
-- `take_profit` — early close because price crossed take-profit threshold
-- `trailing_stop` — early close because trailing stop triggered
-- `forecast_changed` — early close because the forecast moved out of our bucket
-
-Unknown reasons raise `ValueError` — adding a new closure path requires adding it here first.
+`load_state()` adds `data.setdefault("realized_pnl", 0.0)` so the existing post-reset state file silently gains the field.
 
 ---
 
 ## Closure Path
 
-Single chokepoint: `apply_closure_to_state` at `bot_v2.py:490`. Currently:
+Single chokepoint exists already: `apply_closure_to_state` at `bot_v2.py:490`. Currently:
 
 ```python
 def apply_closure_to_state(state, pnl):
@@ -107,53 +75,35 @@ def apply_closure_to_state(state, pnl):
     state["total_trades"] = state.get("total_trades", 0) + 1
 ```
 
-New signature:
+Add two lines — no signature change:
 
 ```python
-def apply_closure_to_state(state, mkt, pos, reason):
-    """Apply a closure: update counters, accumulator, and append to ledger.
-
-    Order: append ledger row first (POSIX O_APPEND is atomic), then update state.
-    A crash between leaves an orphan ledger row that is recoverable by replay;
-    the reverse order would silently lose the closure.
-    """
+def apply_closure_to_state(state, pnl):
+    if pnl is None:
+        return
+    if pnl > 0:
+        state["wins"] = state.get("wins", 0) + 1
+    else:
+        state["losses"] = state.get("losses", 0) + 1
+    state["total_trades"] = state.get("total_trades", 0) + 1
+    state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + pnl, 2)
 ```
 
-Inputs: `mkt` and `pos` are the existing dicts; both already carry `city`, `date`, `market_id`, `cost`, and `pnl`. `reason` is one of the closed-set strings above.
-
-**Precondition:** every existing call site already sets `pos["pnl"]` (and where applicable `mkt["pnl"]`) before invoking `apply_closure_to_state`. The new signature preserves that contract — the caller computes `pnl`, stores it on the position, then calls in. The function reads `pos["pnl"]` rather than taking it as a parameter, eliminating one source of drift.
-
-### Call sites to update
-
-The current code calls `apply_closure_to_state(state, pnl)` from at least these locations (verified by grep — implementation must do an exhaustive sweep, not trust this list):
-
-- `bot_v2.py:507` — `close_position_at_resolution` (called by monitor loop on natural resolution)
-- `bot_v2.py:688` — `monitor_positions` early-close (`stop_loss` / `take_profit` / `trailing_stop`)
-- `bot_v2.py:699` — forecast-changed close
-- `bot_v2.py:852` — `scan_and_update` final resolve (resolved_win / resolved_loss)
-- `bot_v2.py:~1041` — additional take-profit path (needs verification)
-
-Each call site supplies the appropriate `reason`. If an existing call site cannot determine the reason (e.g., `monitor_positions` may already track it in a `reason` local), pipe that through.
-
-### Atomicity
-
-Ledger is opened with `O_APPEND` (Python's `open(path, "a")` does this on POSIX). A single `f.write(line + "\n")` followed by `f.flush()` is sufficient — partial writes are vanishingly rare and would corrupt at most one line. No locking required (single-writer assumption holds — only the bot process writes).
-
-State save (`save_state`) writes the full JSON and is the existing pattern; not changing it.
+That's the entire bot-side change. Every existing call site (verified by grep at `bot_v2.py:507`, `:688`, `:699`, `:852`, plus the take-profit path around `:1041` to confirm during implementation) already passes the correct `pnl` value, so no call-site edits.
 
 ### Rounding
 
-Both `state.realized_pnl` and `pnl` in the ledger are rounded to 2 decimals at write time. This guarantees:
+`round(... + pnl, 2)` on every increment keeps the accumulator bounded against float drift. Since per-trade PnL is already rounded to 2 decimals at the call sites (`bot_v2.py:521`, `:681`, `:840`), the accumulator stays exact.
 
-```python
-state["realized_pnl"] == round(sum(row["pnl"] for row in ledger), 2)
-```
+### Save ordering
 
-…holds exactly, modulo floating-point summation order over hundreds of trades. Acceptable; existing code uses floats throughout.
+`apply_closure_to_state` mutates the dict; the existing `save_state(state)` call after the close path persists it. No new I/O ordering concerns — same persistence pattern as the existing `wins` / `losses` counters.
 
 ---
 
 ## Dashboard
+
+`dashboard_server.py:48` already publishes `state.json` via `data/manifest.json`. The dashboard fetches `state.json` directly — once `realized_pnl` is in the file, it's available with no server change.
 
 `Dashboard.html:1030` currently:
 
@@ -164,46 +114,50 @@ const totalPnL = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
 Replace with:
 
 ```js
-const totalPnL = state.realized_pnl;
+const totalPnL = state.realized_pnl ?? 0;
 const recomputed = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
 if (Math.abs(totalPnL - recomputed) > 0.01) {
   console.warn(`realized_pnl drift: state=${totalPnL} recomputed=${recomputed}`);
 }
 ```
 
-The drift warning is console-only — never UI. State-derived value is the truth.
+The `?? 0` fallback handles the brief window where a stale `state.json` from before this change is loaded. The drift warning is console-only — never UI. State-derived value is the truth.
 
-The equity curve at `Dashboard.html:587` continues to derive from market files for now. Migrating it to the ledger is a follow-up.
+The equity curve at `Dashboard.html:587` continues to derive from market files. Migrating it is out of scope.
+
+### Drift expectations
+
+The two values can legitimately diverge in one situation: a market file is deleted while its closure remains counted in `state.realized_pnl`. That's recovery behaviour we want — accumulator survives pruning. The console warning surfaces it without breaking the UI.
 
 ---
 
 ## Reset
 
-The Apr 23 reset deleted `state.json` and all market files manually. This design adds one more file to delete: `data/realized_ledger.jsonl`.
+The Apr 23 reset deleted `state.json` and all market files manually. With this change, the reset procedure is unchanged: `state.json` deletion clears `realized_pnl` along with `balance` / `wins` / `losses`. No new files to clean up.
 
-Action: locate the reset path during implementation (likely manual, possibly a script in `tools/`). Update `BOT_README.md` to document the new file in the reset checklist. If a reset script exists, add the deletion there.
+If a reset script exists in `tools/`, no change needed. If reset is documented anywhere (e.g. `BOT_README.md`), no change needed — the new field is wiped by the existing procedure.
 
 ---
 
 ## Tests
 
-Three new tests in the existing `tests/` style:
+One new test, in the existing `tests/` style:
 
-1. **`test_realized_pnl_accumulator`** — open a position, close it three different ways across three markets (stop_loss, resolved_win, forecast_changed). Assert:
-   - `state["realized_pnl"]` equals the sum of the three `pnl` values, rounded
-   - `state["realized_pnl"]` equals `sum(ledger.pnl)`
-   - `state["balance"]` is consistent with `starting_balance + realized_pnl - sum(open_position_costs)`
+**`test_realized_pnl_accumulator`** — open three positions, close them three different ways across three markets (stop_loss path, resolved_win path, forecast_changed path) by exercising the actual closure functions in `bot_v2.py`, not by calling `apply_closure_to_state` directly. Assert:
 
-2. **`test_unknown_reason_raises`** — calling `apply_closure_to_state(state, mkt, pos, reason="foo")` raises `ValueError`.
+- `state["realized_pnl"]` equals the sum of the three `pnl` values, rounded to 2 decimals
+- `state["realized_pnl"]` equals `sum(mkt["pnl"] for mkt in markets)` — the dashboard's recomputed value matches
+- `state["balance"]` is consistent with `starting_balance + state["realized_pnl"] - sum(open_position_costs)` (sanity check that no path forgot to update both balance and accumulator)
 
-3. **`test_ledger_replay_reconstructs_state`** — write 100 closures in sequence. Truncate the ledger at a random byte offset (simulating crash mid-write). Assert that the truncated ledger has N or N-1 valid JSON lines (no partial garbage) and that replaying reconstructs `realized_pnl` exactly equal to `sum(replayed_pnl)`.
+A separate "no closures means zero" case is implicit in `load_state()` returning `0.0` when the field is absent — covered by reading any existing test that calls `load_state()` on a fresh state.
 
 ---
 
 ## Out of scope (follow-ups)
 
-- Migrating the dashboard equity curve from market-file scan to the ledger
+- Append-only ledger of every closure event
+- Migrating the dashboard equity curve from market-file scan to a ledger
 - Per-period reporting (daily / weekly PnL)
-- Per-city or per-reason breakdowns derived from the ledger
+- Per-city or per-reason breakdowns
 - Lifetime accumulator across resets (explicitly rejected)
 - Crypto bot parity (crypto bot is abandoned)
