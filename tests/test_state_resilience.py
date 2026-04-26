@@ -63,6 +63,22 @@ class TestPartialState:
         assert state.get("wins", 0) == 0
         assert state.get("losses", 0) == 0
 
+    def test_missing_realized_pnl_gets_zero(self, tmp_path, monkeypatch):
+        state_file = tmp_path / "state.json"
+        state_file.write_text(json.dumps({
+            "balance": 1000.0,
+            "starting_balance": 1000.0,
+            "total_trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "peak_balance": 1000.0,
+        }))
+        monkeypatch.setattr("bot_v2.STATE_FILE", state_file)
+
+        state = load_state()
+
+        assert state["realized_pnl"] == 0.0
+
     def test_empty_dict_returns_defaults(self, tmp_path, monkeypatch):
         state_file = tmp_path / "state.json"
         monkeypatch.setattr("bot_v2.STATE_FILE", state_file)
@@ -117,6 +133,7 @@ class TestStateRoundtrip:
             "wins": 25,
             "losses": 17,
             "peak_balance": 1500.0,
+            "realized_pnl": 0.0,
         }
         save_state(original)
         loaded = load_state()

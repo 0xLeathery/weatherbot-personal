@@ -450,6 +450,7 @@ def load_state():
                 data.setdefault("losses", 0)
                 data.setdefault("total_trades", 0)
                 data.setdefault("starting_balance", data.get("balance", BALANCE))
+                data.setdefault("realized_pnl", 0.0)
                 return data
         except (json.JSONDecodeError, OSError):
             pass
@@ -460,6 +461,7 @@ def load_state():
         "wins":             0,
         "losses":           0,
         "peak_balance":     BALANCE,
+        "realized_pnl":     0.0,
     }
 
 def save_state(state):
