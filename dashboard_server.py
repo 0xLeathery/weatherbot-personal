@@ -43,11 +43,29 @@ def regenerate_manifest() -> None:
     markets_dir = DATA_DIR / "markets"
     markets_dir.mkdir(exist_ok=True)
     market_files = sorted(p.name for p in markets_dir.glob("*.json"))
+
+    # Embed only the keys the baseline staleness guard depends on.
+    config_snapshot = None
+    config_path = ROOT / "config.json"
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            config_snapshot = {
+                "spread_threshold": cfg.get("spread_threshold"),
+                "max_bet":          cfg.get("max_bet"),
+                "kelly_fraction":   cfg.get("kelly_fraction"),
+            }
+        except (json.JSONDecodeError, OSError):
+            pass
+
     manifest = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "state": "state.json" if (DATA_DIR / "state.json").exists() else None,
-        "calibration": "calibration.json" if (DATA_DIR / "calibration.json").exists() else None,
-        "markets": market_files,
+        "generated_at":    datetime.now(timezone.utc).isoformat(),
+        "state":           "state.json"             if (DATA_DIR / "state.json").exists() else None,
+        "calibration":     "calibration.json"       if (DATA_DIR / "calibration.json").exists() else None,
+        "closures":        "closures.jsonl"         if (DATA_DIR / "closures.jsonl").exists() else None,
+        "baseline":        "backtest_baseline.json" if (DATA_DIR / "backtest_baseline.json").exists() else None,
+        "config_snapshot": config_snapshot,
+        "markets":         market_files,
     }
     (DATA_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
