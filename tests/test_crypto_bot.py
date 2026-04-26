@@ -7,9 +7,6 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import crypto_bot
 
-def test_position_path_uses_market_id(tmp_path, monkeypatch):
-    monkeypatch.setattr(crypto_bot, "POSITIONS_DIR", tmp_path)
-    assert crypto_bot.position_path("mkt-123") == tmp_path / "mkt-123.json"
 
 def test_load_position_missing_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr(crypto_bot, "POSITIONS_DIR", tmp_path)

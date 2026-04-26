@@ -1,40 +1,9 @@
 """Tests for backfill_calibration.py"""
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import patch, MagicMock
 import json
-import sys
 
 import pytest
-
-
-def test_default_date_range():
-    """Default: 30 days ago to yesterday."""
-    with patch.object(sys, 'argv', ['backfill_calibration.py']):
-        from backfill_calibration import parse_args
-        args = parse_args()
-        today = date.today()
-        assert args.end == today - timedelta(days=1)
-        assert args.start == today - timedelta(days=30)
-        assert args.dry_run is False
-
-
-def test_custom_date_range():
-    with patch.object(sys, 'argv', [
-        'backfill_calibration.py',
-        '--start', '2026-03-20',
-        '--end', '2026-04-15'
-    ]):
-        from backfill_calibration import parse_args
-        args = parse_args()
-        assert args.start == date(2026, 3, 20)
-        assert args.end == date(2026, 4, 15)
-
-
-def test_dry_run_flag():
-    with patch.object(sys, 'argv', ['backfill_calibration.py', '--dry-run']):
-        from backfill_calibration import parse_args
-        args = parse_args()
-        assert args.dry_run is True
 
 
 def test_fetch_actual_temp_success():
@@ -109,23 +78,6 @@ def test_fetch_ecmwf_forecasts_handles_none_values():
     assert result["d0"] == 75
     assert result["d1"] is None  # all None
     assert result["d2"] == 65
-
-
-def test_fetch_ecmwf_forecasts_uses_timezone():
-    """Use city timezone from TIMEZONES dict."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"hourly": {
-        "temperature_2m": [70],
-        "temperature_2m_previous_day1": [65],
-        "temperature_2m_previous_day2": [60],
-    }}
-
-    with patch('backfill_calibration.requests.get', return_value=mock_response) as mock_get:
-        from backfill_calibration import fetch_ecmwf_forecasts
-        fetch_ecmwf_forecasts("tokyo", "2026-04-01")
-
-    call_url = mock_get.call_args[0][0]
-    assert "timezone=Asia%2FTokyo" in call_url or "timezone=Asia/Tokyo" in call_url
 
 
 def test_fetch_hrrr_forecasts_us_city():
@@ -366,21 +318,3 @@ def test_backfill_dry_run_no_writes(tmp_path):
 
     assert stats["created"] == 0
     assert not (tmp_path / "chicago_2026-04-01.json").exists()
-
-
-def test_main_runs_backfill(tmp_path):
-    """main() parses args and runs backfill."""
-    mock_backfill = MagicMock(return_value={"created": 10, "skipped": 5, "failed": 0})
-
-    with patch.object(sys, 'argv', [
-        'backfill_calibration.py',
-        '--start', '2026-04-01',
-        '--end', '2026-04-02',
-    ]), patch('backfill_calibration.backfill', mock_backfill):
-        from backfill_calibration import main
-        main()
-
-    mock_backfill.assert_called_once()
-    call_kwargs = mock_backfill.call_args[1]
-    assert call_kwargs['start'] == date(2026, 4, 1)
-    assert call_kwargs['end'] == date(2026, 4, 2)

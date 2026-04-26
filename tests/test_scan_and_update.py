@@ -89,7 +89,7 @@ def _mock_open_meteo_hrrr():
     mock_resp.json.return_value = {
         "daily": {
             "time": dates,
-            "temperature_2m_max": [71, 73, 75],
+            "temperature_2m_max": [76, 78, 80],
         }
     }
     return mock_resp
@@ -519,12 +519,9 @@ class TestForecastChangedClose:
         assert saved["position"]["pnl"] == pytest.approx(-10.0)
 
         state = json.loads((tmp_path / "state.json").read_text())
-        # Balance should be 990 + 0 = 990 — unchanged but correctly accounted
-        # BUG: balance is NOT updated because `if fc_delta:` skips 0.0
-        # TODO: after fix, this should be 990.0
+        # fc_delta == 0.0 (total loss): balance unchanged but correctly accounted
         assert state["balance"] == pytest.approx(990.0)
-        # BUG: loss counter is NOT incremented because `if fc_delta:` skips apply_closure_to_state
-        # TODO: after fix, this should be >= 1
+        # Loss counter incremented correctly even when delta is 0.0
         assert state["losses"] >= 1
 
 
@@ -589,3 +586,195 @@ class TestStateInvariants:
 
         state = json.loads((tmp_path / "state.json").read_text())
         assert state["wins"] + state["losses"] >= 1
+
+
+class TestMultiCityBalanceSharing:
+    def test_balance_shared_across_two_cities_opening_positions(self, tmp_path, monkeypatch):
+        """Two cities both open positions — balance decrements by sum of all costs,
+        not independently. Catches bugs where each city gets its own balance copy.
+        """
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+        (tmp_path / "state.json").write_text(json.dumps(_make_state()))
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        event_dallas = _make_polymarket_event("dallas", today)
+        event_chicago = _make_polymarket_event("chicago", today)
+        test_cities = {"dallas", "chicago"}
+
+        def mock_get(url, *args, **kwargs):
+            if "open-meteo.com/v1/forecast" in url and "ecmwf" in url:
+                return _mock_open_meteo_ecmwf()
+            if "open-meteo.com/v1/forecast" in url and "gfs" in url:
+                return _mock_open_meteo_hrrr()
+            if "aviationweather.gov" in url:
+                return _mock_metar()
+            if "gamma-api.polymarket.com/events" in url:
+                for city in test_cities:
+                    if city in url:
+                        if city == "dallas":
+                            return _mock_gamma_events(event_dallas)
+                        return _mock_gamma_events(event_chicago)
+                empty = MagicMock()
+                empty.json.return_value = []
+                return empty
+            if "gamma-api.polymarket.com/markets" in url:
+                return _mock_gamma_market("mkt_1", best_ask=0.32, best_bid=0.30)
+            return MagicMock()
+
+        monkeypatch.setattr("bot_v2.requests.get", mock_get)
+        monkeypatch.setattr("bot_v2.time.sleep", lambda *a: None)
+
+        scan_and_update()
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        markets_dir = tmp_path / "markets"
+        open_cost = 0.0
+        realized_pnl = 0.0
+        for f in markets_dir.glob("*.json"):
+            m = json.loads(f.read_text())
+            pos = m.get("position")
+            if pos and pos.get("status") == "open":
+                open_cost += pos.get("cost", 0)
+            if pos and pos.get("status") == "closed" and pos.get("pnl") is not None:
+                realized_pnl += pos["pnl"]
+
+        expected = round(state["starting_balance"] + realized_pnl - open_cost, 2)
+        assert state["balance"] == expected
+
+    def test_one_city_stop_loss_does_not_affect_other_city(self, tmp_path, monkeypatch):
+        """City A has a stop-loss, City B opens new positions.
+        Balance should reflect both correctly via the invariant.
+        """
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        pos_a = _make_position(entry_price=0.30, shares=33.33, cost=10.0, stop_price=0.25)
+        _make_market_file(tmp_path, city="dallas", date=today, position=pos_a)
+        (tmp_path / "state.json").write_text(json.dumps(_make_state(balance=990.0, trades=1)))
+
+        event_dallas = _make_polymarket_event("dallas", today, markets=[
+            {"id": "mkt_1", "question": f"Will the high be between 70-75°F on {today}?", "outcomePrices": "[0.20, 0.22]", "volume": 1000},
+        ])
+        event_chicago = _make_polymarket_event("chicago", today)
+        test_cities = {"dallas", "chicago"}
+
+        def mock_get(url, *args, **kwargs):
+            if "open-meteo" in url or "aviationweather" in url:
+                return _mock_open_meteo_ecmwf()
+            if "gamma-api.polymarket.com/events" in url:
+                for city in test_cities:
+                    if city in url:
+                        if city == "dallas":
+                            return _mock_gamma_events(event_dallas)
+                        return _mock_gamma_events(event_chicago)
+                empty = MagicMock()
+                empty.json.return_value = []
+                return empty
+            if "gamma-api.polymarket.com/markets" in url:
+                return _mock_gamma_market("mkt_1", best_ask=0.22, best_bid=0.20)
+            return MagicMock()
+
+        monkeypatch.setattr("bot_v2.requests.get", mock_get)
+        monkeypatch.setattr("bot_v2.time.sleep", lambda *a: None)
+
+        scan_and_update()
+
+        dallas_saved = json.loads((tmp_path / "markets" / f"dallas_{today}.json").read_text())
+        assert dallas_saved["position"]["status"] == "closed"
+        assert dallas_saved["position"]["close_reason"] == "stop_loss"
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        markets_dir = tmp_path / "markets"
+        open_cost = 0.0
+        realized_pnl = 0.0
+        for f in markets_dir.glob("*.json"):
+            m = json.loads(f.read_text())
+            pos = m.get("position")
+            if pos and pos.get("status") == "open":
+                open_cost += pos.get("cost", 0)
+            if pos and pos.get("status") == "closed" and pos.get("pnl") is not None:
+                realized_pnl += pos["pnl"]
+
+        expected = round(state["starting_balance"] + realized_pnl - open_cost, 2)
+        assert state["balance"] == expected
+
+
+class TestFilterInteraction:
+    def test_high_volume_does_not_bypass_spread_check(self, tmp_path, monkeypatch):
+        """Volume passes but spread fails — position should NOT open.
+        Catches bugs where filters are OR'd instead of AND'd.
+        """
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+        (tmp_path / "state.json").write_text(json.dumps(_make_state()))
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        event = _make_polymarket_event("dallas", today, markets=[
+            {"id": "mkt_1", "question": f"Will the high be between 70-75°F on {today}?", "outcomePrices": "[0.30, 0.40]", "volume": 50000},
+        ])
+        _setup_api_mocks(monkeypatch, event, best_ask=0.40, best_bid=0.30, only_city="dallas")
+
+        scan_and_update()
+
+        saved = json.loads((tmp_path / "markets" / f"dallas_{today}.json").read_text())
+        assert saved["position"] is None
+
+    def test_low_spread_does_not_bypass_volume_check(self, tmp_path, monkeypatch):
+        """Spread passes but volume fails — position should NOT open."""
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+        (tmp_path / "state.json").write_text(json.dumps(_make_state()))
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        event = _make_polymarket_event("dallas", today, markets=[
+            {"id": "mkt_1", "question": f"Will the high be between 70-75°F on {today}?", "outcomePrices": "[0.30, 0.31]", "volume": 50},
+        ])
+        _setup_api_mocks(monkeypatch, event, best_ask=0.31, best_bid=0.30, only_city="dallas")
+
+        scan_and_update()
+
+        saved = json.loads((tmp_path / "markets" / f"dallas_{today}.json").read_text())
+        assert saved["position"] is None
+
+    def test_good_price_does_not_bypass_ev_check(self, tmp_path, monkeypatch):
+        """Price is low but forecast is far from bucket → probability near 0 → EV negative."""
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+        (tmp_path / "state.json").write_text(json.dumps(_make_state()))
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        event = _make_polymarket_event("dallas", today, markets=[
+            {"id": "mkt_1", "question": f"Will the high be between 90-95°F on {today}?", "outcomePrices": "[0.10, 0.12]", "volume": 1000},
+        ])
+        _setup_api_mocks(monkeypatch, event, best_ask=0.12, best_bid=0.10, only_city="dallas")
+
+        scan_and_update()
+
+        saved = json.loads((tmp_path / "markets" / f"dallas_{today}.json").read_text())
+        assert saved["position"] is None
+
+    def test_all_filters_pass_together(self, tmp_path, monkeypatch):
+        """Volume, spread, price, EV, and size all pass — position opens."""
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+        (tmp_path / "state.json").write_text(json.dumps(_make_state()))
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        event = _make_polymarket_event("dallas", today, markets=[
+            {"id": "mkt_1", "question": f"Will the high be between 70-75°F on {today}?", "outcomePrices": "[0.30, 0.32]", "volume": 5000},
+        ])
+        _setup_api_mocks(monkeypatch, event, best_ask=0.32, best_bid=0.30, only_city="dallas")
+
+        scan_and_update()
+
+        saved = json.loads((tmp_path / "markets" / f"dallas_{today}.json").read_text())
+        assert saved["position"] is not None
+        assert saved["position"]["status"] == "open"
