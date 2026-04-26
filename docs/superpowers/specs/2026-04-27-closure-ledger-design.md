@@ -98,7 +98,6 @@ The dashboard's "since last reset" filter selects ledger rows with `ts >= latest
   "config_snapshot": {
     "spread_threshold": 2.0,
     "max_bet": 20.0,
-    "min_ev": 0.10,
     "kelly_fraction": 0.25
   },
   "test_set": {
@@ -116,7 +115,7 @@ The dashboard's "since last reset" filter selects ledger rows with `ts >= latest
 }
 ```
 
-`config_snapshot` is the staleness guard — the dashboard reads current `config.json` and warns if any of these values differ from the snapshot.
+`config_snapshot` is the staleness guard — the dashboard reads current `config.json` and warns if any of these values differ from the snapshot. Only parameters the simulation actually consumes are snapshotted: `spread_threshold` (entry trigger), `kelly_fraction` (sizing), `max_bet` (sizing cap). `min_ev` is **not** snapshotted because `walkforward_test.py` does not apply an EV filter — including it would fire false staleness warnings on a parameter the baseline does not depend on.
 
 ---
 
@@ -176,12 +175,13 @@ Rationale: of the two failure modes between `record_closure` and `save_state`, t
 Replaces today's "manually delete `state.json` and market files." Steps:
 
 1. Confirm with user (interactive prompt or `--yes` flag).
-2. Append a `{"type": "reset", "ts": <now>, "starting_balance": <from config>, "note": <optional>}` row to `data/closures.jsonl` **before** any deletions.
-3. Delete `data/state.json`.
-4. Delete `data/markets/*.json` (matching today's manual procedure).
-5. Print summary: ledger marker written, files cleared, restart bot.
+2. Read `starting_balance` for the marker — precedence: `--starting-balance` CLI flag > `state.json["starting_balance"]` (still on disk at this point) > `config.json["balance"]`.
+3. Append a `{"type": "reset", "ts": <now>, "starting_balance": <resolved>, "note": <optional>}` row to `data/closures.jsonl` **before** any deletions.
+4. Delete `data/state.json`.
+5. Delete `data/markets/*.json` (matching today's manual procedure).
+6. Print summary: ledger marker written, files cleared, restart bot.
 
-Flags: `--yes` to skip the interactive confirmation, `--dry-run` to print the planned actions and exit without touching disk or appending the marker.
+Flags: `--yes` to skip the interactive confirmation, `--dry-run` to print the planned actions and exit without touching disk or appending the marker, `--starting-balance <n>` to override the marker's starting balance, `--note <str>` to set the marker's `note` field.
 
 The ledger is **never deleted** by this script. That is the entire point of the design.
 
@@ -216,7 +216,7 @@ def maybe_backfill_ledger():
 
 Called from the same startup path as `maybe_backfill_realized_pnl`.
 
-**Best-effort guarantee.** Closures from before commit `eabdb67` (spread-strategy migration) lack `spread_at_entry`, `sigma_at_entry`, `forecast_src`, `ecmwf_temp_at_entry`. Backfill emits `null` for those fields. The dashboard's per-spread cuts (in v2) must filter to `spread_at_entry IS NOT NULL`. The v1 header strip uses only aggregate win rate / PnL, so this limitation does not affect v1 output.
+**Best-effort guarantee.** Backfill from market files writes whatever fields are present and `null` otherwise. **Guaranteed non-null** for any closed/resolved row: `pnl`, `entry_price`, `exit_price`, `close_reason`, `opened_at`, `closed_at` (or `ts`), `market_id`, `city`, `date_target`, `bucket_low`, `bucket_high`, `cost`, `shares`. **All `_at_entry` fields are best-effort** — closures from before commit `eabdb67` (spread-strategy migration) predate the spread-strategy entry path entirely, so `spread_at_entry`, `sigma_at_entry`, `forecast_src`, `ecmwf_temp_at_entry`, `forecast_temp_at_entry`, `p_at_entry`, `ev_at_entry` may all be null. v2 per-spread/per-EV cuts must filter on `spread_at_entry IS NOT NULL`. The v1 header strip uses only aggregate win rate / PnL, so this limitation does not affect v1 output.
 
 ### `walkforward_test.py` — `--emit-baseline`
 
@@ -228,6 +228,8 @@ parser.add_argument("--emit-baseline", action="store_true",
 ```
 
 When set, the existing `--simulate` and `--threshold` arguments still drive the run; on completion, write the JSON. The bot does not run this — it is a manual / scripted operation. Re-run when config changes.
+
+**`--emit-baseline` without `--simulate`:** if `--simulate` is not provided, default to `--simulate 1000.0` for the baseline run (matches the bot's starting balance). The user's intent in passing `--emit-baseline` alone is "produce a baseline" — failing on a missing flag would be unhelpful.
 
 ### `dashboard_server.py` — manifest
 
@@ -247,6 +249,8 @@ No other server changes.
 One new component (the only v1 dashboard surface): a header strip rendered above the existing realized-PnL tile.
 
 **Inputs:** `closures.jsonl` (filtered to rows with `type == "closure"` and `ts >= latest_reset_ts`), `backtest_baseline.json`, `config.json`.
+
+**No reset row in the ledger:** if no `type == "reset"` row exists (e.g., first deploy after backfill, before `tools/reset.py` has ever been run), fall back to "all-time" scope and surface a small `no reset boundary detected` hint next to the date prefix. Don't silently filter to nothing.
 
 **Output:** one line.
 
