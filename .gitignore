@@ -209,6 +209,7 @@ __marimo__/
 # Bot runtime state — lives on Railway volume in production
 data/
 bot.log
+calibration_walkforward.json
 
 # Worktrees
 .worktrees/
