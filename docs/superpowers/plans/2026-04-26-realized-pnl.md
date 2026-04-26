@@ -20,7 +20,7 @@
 | `bot_v2.py:490-502` | Modify | Add accumulator increment to `apply_closure_to_state` |
 | `tests/test_state_resilience.py` | Modify | Add `realized_pnl` default test to `TestPartialState` |
 | `tests/test_realized_pnl.py` | Create | Unit + integration tests for accumulator across closure paths |
-| `Dashboard.html:1022,1030` | Modify | Read `state.realized_pnl`; add asymmetric drift `console.warn` |
+| `Dashboard.html` (App component, ~`:1140-1155`, `:1377`, `:1462`) | Modify | Read `state.realized_pnl`; new "Realized PnL" KpiTile; replace per-card meta sum; asymmetric drift `console.warn`. **Note:** original plan cited `:1022,:1030` — those lines are inside `CryptoView` (out of scope). The retarget is recorded in commit `40dacfd`. |
 
 No call-site edits are needed in `bot_v2.py`. The four existing call sites (`:688`, `:699`, `:852`, `:1061`) all already invoke `apply_closure_to_state(state, pnl)` — extending the helper propagates to all of them.
 
