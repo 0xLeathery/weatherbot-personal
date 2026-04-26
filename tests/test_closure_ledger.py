@@ -157,3 +157,64 @@ class TestRecordClosure:
 
         assert ledger.exists()
         assert json.loads(ledger.read_text().strip())["type"] == "closure"
+
+
+# Reuse helpers from test_realized_pnl.py-style fixtures
+from tests.test_realized_pnl import _make_position, _make_market, _mock_gamma_response, _write_state
+
+
+class TestAllFourPathsRecordClosure:
+    """Each of the four closure paths in bot_v2.py must append exactly one
+    row to data/closures.jsonl. record_closure runs adjacent to (and BEFORE
+    save_state in) every site that calls apply_closure_to_state."""
+
+    def _setup_dirs(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        monkeypatch.setattr("bot_v2.LEDGER_FILE", tmp_path / "closures.jsonl")
+        (tmp_path / "markets").mkdir()
+
+    def _read_ledger(self, tmp_path):
+        path = tmp_path / "closures.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(l) for l in path.read_text().strip().split("\n") if l]
+
+    def test_stop_loss_path_writes_row(self, tmp_path, monkeypatch):
+        from bot_v2 import monitor_positions
+        self._setup_dirs(tmp_path, monkeypatch)
+
+        pos = _make_position(entry_price=0.50, shares=20.0, cost=10.0, stop_price=0.40)
+        mkt = _make_market(position=pos)
+        (tmp_path / "markets" / "dallas_2026-05-01.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", balance=990.0, total_trades=1)
+
+        with patch("bot_v2.requests.get", return_value=_mock_gamma_response("mkt_1", best_bid=0.40)):
+            monitor_positions()
+
+        rows = self._read_ledger(tmp_path)
+        closure_rows = [r for r in rows if r["type"] == "closure"]
+        assert len(closure_rows) == 1
+        assert closure_rows[0]["close_reason"] == "stop_loss"
+        assert closure_rows[0]["pnl"] == -2.00
+
+    def test_take_profit_path_writes_row(self, tmp_path, monkeypatch):
+        from datetime import datetime, timezone, timedelta
+        from bot_v2 import monitor_positions
+        self._setup_dirs(tmp_path, monkeypatch)
+
+        end_dt = datetime.now(timezone.utc) + timedelta(hours=60)
+        pos = _make_position(entry_price=0.50, shares=20.0, cost=10.0, stop_price=0.40)
+        mkt = _make_market(position=pos)
+        mkt["event_end_date"] = end_dt.isoformat().replace("+00:00", "Z")
+        (tmp_path / "markets" / "dallas_2026-05-01.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", balance=990.0, total_trades=1)
+
+        with patch("bot_v2.requests.get", return_value=_mock_gamma_response("mkt_1", best_bid=0.75)):
+            monitor_positions()
+
+        rows = self._read_ledger(tmp_path)
+        closure_rows = [r for r in rows if r["type"] == "closure"]
+        assert len(closure_rows) == 1
+        assert closure_rows[0]["close_reason"] == "take_profit"
+        assert closure_rows[0]["pnl"] == 5.00

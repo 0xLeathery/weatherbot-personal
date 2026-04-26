@@ -775,6 +775,7 @@ def scan_and_update():
                         pos["exit_price"]   = current_price
                         pos["pnl"]          = pnl
                         pos["status"]       = "closed"
+                        record_closure(mkt, pos)
                         apply_closure_to_state(state, pnl)
                         closed += 1
                         reason = "STOP" if current_price < entry else "TRAILING BE"
@@ -786,6 +787,7 @@ def scan_and_update():
                 balance += fc_delta
                 closed += 1
                 fc_pnl = mkt["position"]["pnl"]
+                record_closure(mkt, mkt["position"])
                 apply_closure_to_state(state, fc_pnl)
                 print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if fc_pnl>=0 else ''}{fc_pnl:.2f}")
 
@@ -939,6 +941,7 @@ def scan_and_update():
         mkt["status"]       = "resolved"
         mkt["resolved_outcome"] = "win" if won else "loss"
 
+        record_closure(mkt, pos)
         apply_closure_to_state(state, pnl)
 
         result = "WIN" if won else "LOSS"
@@ -1148,6 +1151,7 @@ def monitor_positions():
             pos["exit_price"]   = current_price
             pos["pnl"]          = pnl
             pos["status"]       = "closed"
+            record_closure(mkt, pos)
             apply_closure_to_state(state, pnl)
             closed += 1
             print(f"  [{reason}] {city_name} {mkt['date']} | entry ${entry:.3f} exit ${current_price:.3f} | {hours_left:.0f}h left | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
