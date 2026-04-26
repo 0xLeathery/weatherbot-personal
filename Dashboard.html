@@ -1019,7 +1019,19 @@ function CryptoView({ cryptoData }) {
     .sort((a, b) => (b.closed_at || "").localeCompare(a.closed_at || ""));
   const { wins = 0, losses = 0, total_trades = 0 } = state;
   const winRate = (wins + losses) > 0 ? (wins / (wins + losses) * 100).toFixed(1) : "—";
-  const totalPnL = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
+  // Canonical: state.realized_pnl is the source of truth (accumulator survives
+  // market-file pruning). recomputed is the per-load sum from market files,
+  // used only as an asymmetric drift sentinel.
+  const totalPnL = (state && typeof state.realized_pnl === "number") ? state.realized_pnl : 0;
+  const recomputedPnL = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
+  // Only warn when files contain a closure the accumulator missed (genuine
+  // bug). The opposite direction (accumulator > files) is expected after
+  // pruning and stays silent.
+  if (recomputedPnL - totalPnL > 0.01) {
+    console.warn(
+      `[realized_pnl] undercount: state=${totalPnL.toFixed(2)} recomputed=${recomputedPnL.toFixed(2)}`
+    );
+  }
 
   return (
     <>
