@@ -11,13 +11,15 @@ def _blank_state():
 def test_profit_increments_wins():
     s = _blank_state()
     apply_closure_to_state(s, pnl=5.0)
-    assert s == {"wins": 1, "losses": 0}
+    assert s["wins"] == 1
+    assert s["losses"] == 0
 
 
 def test_loss_increments_losses():
     s = _blank_state()
     apply_closure_to_state(s, pnl=-3.0)
-    assert s == {"wins": 0, "losses": 1}
+    assert s["wins"] == 0
+    assert s["losses"] == 1
 
 
 def test_zero_pnl_counts_as_loss():
@@ -26,11 +28,13 @@ def test_zero_pnl_counts_as_loss():
     # the "total resolved" count.
     s = _blank_state()
     apply_closure_to_state(s, pnl=0.0)
-    assert s == {"wins": 0, "losses": 1}
+    assert s["wins"] == 0
+    assert s["losses"] == 1
 
 
 def test_sequential_closures_accumulate():
     s = _blank_state()
     for pnl in (10.0, -2.0, 4.0, -5.0):
         apply_closure_to_state(s, pnl=pnl)
-    assert s == {"wins": 2, "losses": 2}
+    assert s["wins"] == 2
+    assert s["losses"] == 2

@@ -490,7 +490,7 @@ def compute_position_price(outcomes, position):
 
 
 def apply_closure_to_state(state, pnl):
-    """Update wins/losses/total_trades counters in-place after a closure.
+    """Update wins/losses counters and accumulate realized PnL after a closure.
 
     pnl is the realized PnL of the closed position. Counters mutate so that
     every realized closure ends up in state.wins or state.losses.

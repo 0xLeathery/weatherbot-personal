@@ -142,8 +142,10 @@ class TestApplyClosureToStateAccumulator:
         apply_closure_to_state(state, 1.111)
         apply_closure_to_state(state, 2.222)
         apply_closure_to_state(state, -0.333)
-        # 1.111 + 2.222 - 0.333 = 3.000, rounded to 2dp at every step
-        # => 1.11 + 2.22 - 0.33 = 3.00
+        # Running total rounds after each step:
+        #   round(0 + 1.111, 2) = 1.11
+        #   round(1.11 + 2.222, 2) = 3.33
+        #   round(3.33 + (-0.333), 2) = 3.00
         assert state["realized_pnl"] == 3.00
 
     def test_missing_realized_pnl_field_treated_as_zero(self):
