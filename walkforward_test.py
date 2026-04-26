@@ -272,7 +272,7 @@ def main():
                         help="Write data/backtest_baseline.json (implies --simulate 1000 if not set).")
     args = parser.parse_args()
 
-    if args.emit_baseline and args.simulate is None:
+    if args.emit_baseline and not args.simulate:
         args.simulate = 1000.0
     
     # Load and group data
