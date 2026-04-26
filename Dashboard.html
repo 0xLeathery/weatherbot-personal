@@ -1149,7 +1149,11 @@ function LiveVsBacktest({ closuresText, baseline, configSnapshot }) {
   const liveWinRate = closures.length ? (100 * wins / closures.length) : null;
   const livePnl = closures.reduce((s, c) => s + (c.pnl || 0), 0);
   const lowSample = closures.length > 0 && closures.length < 10;
-  const dateStr = cutoff ? new Date(cutoff).toISOString().slice(0, 10) : null;
+  const dateStr = (() => {
+    if (!cutoff) return null;
+    const d = new Date(cutoff);
+    return isNaN(d.getTime()) ? cutoff : d.toISOString().slice(0, 10);
+  })();
   const sinceLabel = hasResetMarker ? `Live (since ${dateStr})` : "Live (all time)";
 
   let backtestStr;
@@ -1175,8 +1179,8 @@ function LiveVsBacktest({ closuresText, baseline, configSnapshot }) {
   let wrStyle = {};
   if (liveWinRate !== null && baseline?.test_set?.win_rate !== undefined) {
     const bw = baseline.test_set.win_rate;
-    if (liveWinRate >= bw) wrStyle = { color: "#4caf50" };
-    else if (liveWinRate < bw - 10) wrStyle = { color: "#e53935" };
+    if (liveWinRate >= bw) wrStyle = { color: "var(--pos)" };
+    else if (liveWinRate < bw - 10) wrStyle = { color: "var(--neg)" };
   }
 
   const liveCell = closures.length === 0
