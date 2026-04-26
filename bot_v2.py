@@ -53,6 +53,7 @@ STATE_FILE       = DATA_DIR / "state.json"
 MARKETS_DIR      = DATA_DIR / "markets"
 MARKETS_DIR.mkdir(exist_ok=True)
 CALIBRATION_FILE = DATA_DIR / "calibration.json"
+LEDGER_FILE      = DATA_DIR / "closures.jsonl"
 
 LOCATIONS = {
     "nyc":          {"lat": 40.7772,  "lon":  -73.8726, "name": "New York City", "station": "KLGA", "unit": "F", "region": "us"},
@@ -538,6 +539,16 @@ def _build_closure_row(mkt, pos):
         "p_at_entry":             pos.get("p"),
         "ev_at_entry":             pos.get("ev"),
     }
+
+
+def record_closure(mkt, pos):
+    """Append one closure row to data/closures.jsonl. Called on the
+    adjacent line to apply_closure_to_state at every closure site.
+    Spec invariant: must run BEFORE save_state(state).
+    """
+    row = _build_closure_row(mkt, pos)
+    with open(LEDGER_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _closure_pnl(mkt):

@@ -115,3 +115,45 @@ class TestBuildClosureRow:
         row = _build_closure_row(mkt, pos)
         assert row["ts"]  # non-empty
         assert row["ts"].endswith("+00:00") or row["ts"].endswith("Z")
+
+
+class TestRecordClosure:
+    def test_appends_one_line_per_call(self, tmp_path, monkeypatch):
+        from bot_v2 import record_closure
+        monkeypatch.setattr("bot_v2.LEDGER_FILE", tmp_path / "closures.jsonl")
+
+        pos = _full_pos()
+        mkt = _full_mkt(pos)
+        record_closure(mkt, pos)
+        record_closure(mkt, pos)
+
+        lines = (tmp_path / "closures.jsonl").read_text().strip().split("\n")
+        assert len(lines) == 2
+        for line in lines:
+            row = json.loads(line)
+            assert row["type"] == "closure"
+            assert row["pnl"] == -1.66
+
+    def test_appends_to_existing_file(self, tmp_path, monkeypatch):
+        from bot_v2 import record_closure
+        ledger = tmp_path / "closures.jsonl"
+        ledger.write_text(json.dumps({"type": "reset", "ts": "2026-04-23T00:00:00+00:00", "starting_balance": 1000.0}) + "\n")
+        monkeypatch.setattr("bot_v2.LEDGER_FILE", ledger)
+
+        record_closure(_full_mkt(_full_pos()), _full_pos())
+
+        lines = ledger.read_text().strip().split("\n")
+        assert len(lines) == 2
+        assert json.loads(lines[0])["type"] == "reset"
+        assert json.loads(lines[1])["type"] == "closure"
+
+    def test_creates_file_if_missing(self, tmp_path, monkeypatch):
+        from bot_v2 import record_closure
+        ledger = tmp_path / "subdir" / "closures.jsonl"
+        ledger.parent.mkdir()
+        monkeypatch.setattr("bot_v2.LEDGER_FILE", ledger)
+
+        record_closure(_full_mkt(_full_pos()), _full_pos())
+
+        assert ledger.exists()
+        assert json.loads(ledger.read_text().strip())["type"] == "closure"
