@@ -252,3 +252,91 @@ class TestWriteOrderInvariant:
         assert ledger
         rows = [json.loads(l) for l in ledger.split("\n") if l]
         assert any(r["type"] == "closure" and r["close_reason"] == "stop_loss" for r in rows)
+
+
+class TestMaybeBackfillLedger:
+    def _seed(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.LEDGER_FILE", tmp_path / "closures.jsonl")
+        (tmp_path / "markets").mkdir()
+
+    def test_backfills_when_ledger_missing(self, tmp_path, monkeypatch):
+        from bot_v2 import maybe_backfill_ledger
+        self._seed(tmp_path, monkeypatch)
+
+        # Two closed (stop/take), one resolved.
+        for name, pos_kwargs, mkt_status in [
+            ("a", {"close_reason": "stop_loss",   "pnl": -3.0, "exit_price": 0.30, "closed_at": "2026-04-23T01:00:00+00:00"}, "closed"),
+            ("b", {"close_reason": "take_profit", "pnl":  5.0, "exit_price": 0.85, "closed_at": "2026-04-23T02:00:00+00:00"}, "closed"),
+            ("c", {"close_reason": "resolved",    "pnl":  2.5, "exit_price": 1.00, "closed_at": "2026-04-23T03:00:00+00:00"}, "resolved"),
+        ]:
+            pos = _make_position()
+            pos["market_id"] = f"mkt_{name}"
+            pos["status"] = "closed"
+            pos.update(pos_kwargs)
+            mkt = _make_market(position=pos, city="dallas", date="2026-05-01")
+            mkt["market_id"] = f"mkt_{name}"
+            mkt["status"] = mkt_status
+            (tmp_path / "markets" / f"{name}.json").write_text(json.dumps(mkt))
+
+        maybe_backfill_ledger()
+
+        rows = [json.loads(l) for l in (tmp_path / "closures.jsonl").read_text().strip().split("\n")]
+        assert len(rows) == 3
+        # Sorted by ts ascending
+        assert [r["close_reason"] for r in rows] == ["stop_loss", "take_profit", "resolved"]
+        assert [r["pnl"] for r in rows] == [-3.0, 5.0, 2.5]
+
+    def test_idempotent_skips_when_ledger_nonempty(self, tmp_path, monkeypatch):
+        from bot_v2 import maybe_backfill_ledger
+        self._seed(tmp_path, monkeypatch)
+        # Pre-existing ledger
+        (tmp_path / "closures.jsonl").write_text(json.dumps({"type": "reset", "ts": "x", "starting_balance": 1000}) + "\n")
+        # Closed market that would otherwise be backfilled
+        pos = _make_position()
+        pos.update({"status": "closed", "close_reason": "stop_loss", "pnl": -1.0, "closed_at": "2026-04-22T00:00:00+00:00"})
+        mkt = _make_market(position=pos)
+        (tmp_path / "markets" / "a.json").write_text(json.dumps(mkt))
+
+        maybe_backfill_ledger()
+
+        # Untouched: still one (reset) row.
+        rows = [json.loads(l) for l in (tmp_path / "closures.jsonl").read_text().strip().split("\n")]
+        assert len(rows) == 1
+        assert rows[0]["type"] == "reset"
+
+    def test_no_op_when_no_closed_positions(self, tmp_path, monkeypatch):
+        from bot_v2 import maybe_backfill_ledger
+        self._seed(tmp_path, monkeypatch)
+
+        maybe_backfill_ledger()
+
+        # Ledger never created.
+        assert not (tmp_path / "closures.jsonl").exists()
+
+    def test_pre_spread_strategy_rows_have_null_spread_fields(self, tmp_path, monkeypatch):
+        from bot_v2 import maybe_backfill_ledger
+        self._seed(tmp_path, monkeypatch)
+        # Pre-eabdb67 closure: position dict lacks spread/sigma/forecast_src.
+        pos = {
+            "market_id":   "mkt_old",
+            "entry_price": 0.50, "exit_price": 0.55, "shares": 20.0, "cost": 10.0,
+            "pnl":         1.00, "bucket_low": 60, "bucket_high": 65,
+            "opened_at":   "2026-04-22T00:00:00+00:00",
+            "closed_at":   "2026-04-22T12:00:00+00:00",
+            "close_reason": "resolved",
+            "status":       "closed",
+        }
+        mkt = _make_market(position=pos)
+        mkt["market_id"] = "mkt_old"
+        mkt["status"] = "resolved"
+        (tmp_path / "markets" / "old.json").write_text(json.dumps(mkt))
+
+        maybe_backfill_ledger()
+
+        row = json.loads((tmp_path / "closures.jsonl").read_text().strip())
+        assert row["spread_at_entry"] is None
+        assert row["sigma_at_entry"] is None
+        assert row["forecast_src"] is None
+        assert row["pnl"] == 1.00
+        assert row["close_reason"] == "resolved"

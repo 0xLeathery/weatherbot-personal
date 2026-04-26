@@ -591,6 +591,36 @@ def maybe_backfill_realized_pnl(state):
     save_state(state)
 
 
+def maybe_backfill_ledger():
+    """One-shot self-heal: backfill closures.jsonl from market files when
+    the ledger is missing or empty but closed positions exist on disk.
+
+    Pre-eabdb67 closures lack spread-strategy fields; those become null in
+    the row. Idempotent — bails on the first guard once the ledger is
+    non-empty.
+    """
+    if LEDGER_FILE.exists() and LEDGER_FILE.stat().st_size > 0:
+        return
+
+    rows = []
+    for mkt in load_all_markets():
+        pos = mkt.get("position") or {}
+        is_closed = pos.get("status") == "closed"
+        is_resolved = mkt.get("status") == "resolved"
+        if not (is_closed or is_resolved):
+            continue
+        rows.append(_build_closure_row(mkt, pos))
+
+    if not rows:
+        return
+
+    rows.sort(key=lambda r: r.get("ts") or "")
+    with open(LEDGER_FILE, "a", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    print(f"[backfill] closures.jsonl ← {len(rows)} rows from market files")
+
+
 def _try_close_forecast_changed(mkt, outcomes, forecast_temp, loc, snap) -> Optional[float]:
     """Close position if forecast has shifted outside its bucket by ≥ buffer degrees.
 
@@ -1181,6 +1211,7 @@ def run_loop():
     # One-shot self-heal: if realized_pnl was added after this bot already had
     # trade history, reconstruct the field from market files. No-op once done.
     maybe_backfill_realized_pnl(load_state())
+    maybe_backfill_ledger()
 
     last_full_scan = 0
 
