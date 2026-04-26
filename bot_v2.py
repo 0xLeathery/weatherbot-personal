@@ -441,7 +441,18 @@ def new_market(city_slug, date_str, event, hours):
 
 def load_state():
     if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data.setdefault("balance", BALANCE)
+                data.setdefault("peak_balance", data.get("balance", BALANCE))
+                data.setdefault("wins", 0)
+                data.setdefault("losses", 0)
+                data.setdefault("total_trades", 0)
+                data.setdefault("starting_balance", data.get("balance", BALANCE))
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
     return {
         "balance":          BALANCE,
         "starting_balance": BALANCE,
