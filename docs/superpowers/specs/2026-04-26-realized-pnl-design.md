@@ -89,7 +89,7 @@ def apply_closure_to_state(state, pnl):
     state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + pnl, 2)
 ```
 
-That's the entire bot-side change. Every existing call site (verified by grep at `bot_v2.py:507`, `:688`, `:699`, `:852`, plus the take-profit path around `:1041` to confirm during implementation) already passes the correct `pnl` value, so no call-site edits.
+That's the entire bot-side change. All four existing call sites — `bot_v2.py:688` (monitor early-close), `:699` (forecast-changed close), `:852` (final scan resolve), and `:1061` (take_profit / stop_loss / trailing_stop in `monitor_positions`) — already pass the correct `pnl` value. Verified by reading each location; no call-site edits needed.
 
 ### Rounding
 
@@ -116,18 +116,18 @@ Replace with:
 ```js
 const totalPnL = state.realized_pnl ?? 0;
 const recomputed = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
-if (Math.abs(totalPnL - recomputed) > 0.01) {
-  console.warn(`realized_pnl drift: state=${totalPnL} recomputed=${recomputed}`);
+// Asymmetric check: only warn when market files contain a closure the
+// accumulator never counted (recomputed > state). The opposite direction
+// (recomputed < state, e.g. after market-file pruning) is expected — the
+// accumulator surviving file deletion is the whole point.
+if (recomputed - totalPnL > 0.01) {
+  console.warn(`realized_pnl undercount: state=${totalPnL} recomputed=${recomputed}`);
 }
 ```
 
 The `?? 0` fallback handles the brief window where a stale `state.json` from before this change is loaded. The drift warning is console-only — never UI. State-derived value is the truth.
 
 The equity curve at `Dashboard.html:587` continues to derive from market files. Migrating it is out of scope.
-
-### Drift expectations
-
-The two values can legitimately diverge in one situation: a market file is deleted while its closure remains counted in `state.realized_pnl`. That's recovery behaviour we want — accumulator survives pruning. The console warning surfaces it without breaking the UI.
 
 ---
 
@@ -149,7 +149,7 @@ One new test, in the existing `tests/` style:
 - `state["realized_pnl"]` equals `sum(mkt["pnl"] for mkt in markets)` — the dashboard's recomputed value matches
 - `state["balance"]` is consistent with `starting_balance + state["realized_pnl"] - sum(open_position_costs)` (sanity check that no path forgot to update both balance and accumulator)
 
-A separate "no closures means zero" case is implicit in `load_state()` returning `0.0` when the field is absent — covered by reading any existing test that calls `load_state()` on a fresh state.
+**`test_load_state_defaults_realized_pnl_to_zero`** — write a `state.json` without the `realized_pnl` key (the shape that exists today, post-Apr-23 reset), call `load_state()`, assert `state["realized_pnl"] == 0.0`. One line, closes the loop on the `setdefault` migration path.
 
 ---
 
