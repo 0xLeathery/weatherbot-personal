@@ -505,6 +505,41 @@ def apply_closure_to_state(state, pnl):
     state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + pnl, 2)
 
 
+def _build_closure_row(mkt, pos):
+    """Construct one ledger row dict from a closed mkt/pos pair.
+
+    Pre-spread-strategy closures (from before commit eabdb67) lack the
+    forecast/spread fields on pos; those become null. Guaranteed-non-null
+    fields per spec: pnl, entry_price, exit_price, close_reason, opened_at,
+    closed_at (or ts), market_id, city, date_target, bucket_low/high, cost,
+    shares.
+    """
+    return {
+        "type":                   "closure",
+        "ts":                     pos.get("closed_at") or datetime.now(timezone.utc).isoformat(),
+        "city":                   mkt.get("city"),
+        "date_target":            mkt.get("date"),
+        "market_id":              pos.get("market_id") or mkt.get("market_id"),
+        "question":               pos.get("question"),
+        "close_reason":           pos.get("close_reason"),
+        "opened_at":              pos.get("opened_at"),
+        "entry_price":            pos.get("entry_price"),
+        "exit_price":             pos.get("exit_price"),
+        "shares":                 pos.get("shares"),
+        "cost":                   pos.get("cost"),
+        "pnl":                    pos.get("pnl"),
+        "bucket_low":             pos.get("bucket_low"),
+        "bucket_high":            pos.get("bucket_high"),
+        "forecast_src":           pos.get("forecast_src"),
+        "forecast_temp_at_entry": pos.get("forecast_temp"),
+        "ecmwf_temp_at_entry":    pos.get("ecmwf_temp"),
+        "spread_at_entry":        pos.get("spread_at_entry"),
+        "sigma_at_entry":         pos.get("sigma"),
+        "p_at_entry":             pos.get("p"),
+        "ev_at_entry":             pos.get("ev"),
+    }
+
+
 def _closure_pnl(mkt):
     """Mirror web/market_transform.js: resolved markets carry the realized
     pnl at the top level (m.pnl); early-closed markets (stop/take/forecast)
