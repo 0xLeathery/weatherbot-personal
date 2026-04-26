@@ -268,7 +268,12 @@ def main():
     parser.add_argument("--simulate", type=float, metavar="BALANCE", help="Simulate with starting balance")
     parser.add_argument("--kelly", type=float, default=0.25, help="Kelly fraction (default: 0.25)")
     parser.add_argument("--max-bet", type=float, default=20.0, help="Max bet per trade (default: 20)")
+    parser.add_argument("--emit-baseline", action="store_true",
+                        help="Write data/backtest_baseline.json (implies --simulate 1000 if not set).")
     args = parser.parse_args()
+
+    if args.emit_baseline and args.simulate is None:
+        args.simulate = 1000.0
     
     # Load and group data
     print(f"Loading markets from {args.data_dir}...")
@@ -320,6 +325,36 @@ def main():
         combined_end = sim["test"]["end"] * (sim["train"]["end"] / args.simulate)
         print(f"\nCOMBINED (train → test):")
         print(f"  ${combined_start:,.0f} → ${combined_end:,.0f} ({100*(combined_end/combined_start - 1):+.1f}%)")
+
+    # Emit baseline if requested
+    if args.emit_baseline:
+        baseline_path = Path("data") / "backtest_baseline.json"
+        baseline_path.parent.mkdir(exist_ok=True)
+        test_stats = results["test"]["stats"]
+        test_sim = sim["test"]
+        payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source":       "walkforward_test.py",
+            "config_snapshot": {
+                "spread_threshold": args.threshold,
+                "max_bet":          args.max_bet,
+                "kelly_fraction":   args.kelly,
+            },
+            "test_set": {
+                "trades":    test_stats["trades"],
+                "win_rate":  test_stats["win_rate"],
+                "total_pnl": test_stats["pnl"],
+                "avg_pnl":   test_stats["avg_pnl"],
+            },
+            "simulation": {
+                "starting_balance": float(args.simulate),
+                "ending_balance":   test_sim["end"],
+                "return_pct":       test_sim["return_pct"],
+                "max_drawdown_pct": test_sim["max_drawdown_pct"],
+            },
+        }
+        baseline_path.write_text(json.dumps(payload, indent=2))
+        print(f"\n→ wrote baseline to {baseline_path}")
 
     # Export calibration if requested
     if args.export_calib:
