@@ -93,3 +93,14 @@ class TestResetDryRun:
 
         rows = [json.loads(l) for l in (data / "closures.jsonl").read_text().strip().split("\n")]
         assert rows[0]["starting_balance"] == 250.0
+
+    def test_dry_run_succeeds_when_no_balance_source(self, tmp_path):
+        # Test that --dry-run works even with no state.json and no config.json,
+        # showing <unresolved> instead of crashing.
+        result = _run(["--dry-run", "--yes"], cwd=tmp_path)
+        assert result.returncode == 0, result.stderr
+
+        # No files should be created during dry-run.
+        data = tmp_path / "data"
+        assert not (data / "state.json").exists()
+        assert not (data / "closures.jsonl").exists()

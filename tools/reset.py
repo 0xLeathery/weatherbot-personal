@@ -68,18 +68,30 @@ def main() -> int:
     state = data / "state.json"
     ledger = data / "closures.jsonl"
 
-    starting_balance = resolve_starting_balance(cwd, args.starting_balance)
-
     market_files = sorted(markets.glob("*.json")) if markets.exists() else []
 
-    print(f"Reset plan:")
+    # For dry-run, try to resolve balance but fall back to <unresolved> if it fails.
+    # For real runs, we'll resolve again and fail loudly if it can't be determined.
+    if args.dry_run:
+        try:
+            starting_balance = resolve_starting_balance(cwd, args.starting_balance)
+        except SystemExit:
+            starting_balance = "<unresolved>"
+
+        print("Reset plan:")
+        print(f"  ledger marker    → {ledger} (starting_balance={starting_balance}, note={args.note!r})")
+        print(f"  delete state     → {state} ({'exists' if state.exists() else 'not present'})")
+        print(f"  delete markets   → {len(market_files)} file(s) under {markets}")
+        print("--dry-run set; exiting without changes.")
+        return 0
+
+    # For real runs, resolve balance (will fail loudly if not available).
+    starting_balance = resolve_starting_balance(cwd, args.starting_balance)
+
+    print("Reset plan:")
     print(f"  ledger marker    → {ledger} (starting_balance={starting_balance}, note={args.note!r})")
     print(f"  delete state     → {state} ({'exists' if state.exists() else 'not present'})")
     print(f"  delete markets   → {len(market_files)} file(s) under {markets}")
-
-    if args.dry_run:
-        print("--dry-run set; exiting without changes.")
-        return 0
 
     if not args.yes:
         resp = input("Proceed? [y/N] ").strip().lower()
