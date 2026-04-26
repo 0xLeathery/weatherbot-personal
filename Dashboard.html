@@ -1019,19 +1019,7 @@ function CryptoView({ cryptoData }) {
     .sort((a, b) => (b.closed_at || "").localeCompare(a.closed_at || ""));
   const { wins = 0, losses = 0, total_trades = 0 } = state;
   const winRate = (wins + losses) > 0 ? (wins / (wins + losses) * 100).toFixed(1) : "—";
-  // Canonical: state.realized_pnl is the source of truth (accumulator survives
-  // market-file pruning). recomputed is the per-load sum from market files,
-  // used only as an asymmetric drift sentinel.
-  const totalPnL = (state && typeof state.realized_pnl === "number") ? state.realized_pnl : 0;
-  const recomputedPnL = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
-  // Only warn when files contain a closure the accumulator missed (genuine
-  // bug). The opposite direction (accumulator > files) is expected after
-  // pruning and stays silent.
-  if (recomputedPnL - totalPnL > 0.01) {
-    console.warn(
-      `[realized_pnl] undercount: state=${totalPnL.toFixed(2)} recomputed=${recomputedPnL.toFixed(2)}`
-    );
-  }
+  const totalPnL = resolved.reduce((s, p) => s + (p.pnl || 0), 0);
 
   return (
     <>
@@ -1149,6 +1137,23 @@ function App({ data, lastFetched, onRefresh, fetchError, cryptoData }) {
   });
 
   const unrealizedTotal = openEnriched.reduce((s, m) => s + m.unrealized, 0);
+
+  // Canonical: data.state.realized_pnl is the source of truth (accumulator
+  // survives market-file pruning). recomputedRealizedPnL is the per-load sum
+  // from market files, used only as an asymmetric drift sentinel.
+  const realizedPnL = (data.state && typeof data.state.realized_pnl === "number")
+    ? data.state.realized_pnl
+    : 0;
+  const recomputedRealizedPnL = resolved.reduce((s, m) => s + (m.pnl || 0), 0);
+  // Only warn when files contain a closure the accumulator missed (genuine
+  // bug). The opposite direction (accumulator > files) is expected after
+  // pruning and stays silent.
+  if (recomputedRealizedPnL - realizedPnL > 0.01) {
+    console.warn(
+      `[realized_pnl] undercount: state=${realizedPnL.toFixed(2)} recomputed=${recomputedRealizedPnL.toFixed(2)}`
+    );
+  }
+
   const reservedCost = DashboardMath.computeReservedCost(data.markets);
   const equityMark = DashboardMath.computeEquityMark({
     cash: data.state.balance,
@@ -1368,6 +1373,12 @@ function App({ data, lastFetched, onRefresh, fetchError, cryptoData }) {
         />
         <KpiTile label="Open positions" value={open.length} sub={`${openEnriched.filter((m) => m.hoursLeft < 6).length} <6h`} />
         <KpiTile
+          label="Realized PnL"
+          value={fmtUSD(realizedPnL)}
+          sub="since last reset"
+          accent={realizedPnL >= 0 ? "var(--pos)" : "var(--neg)"}
+        />
+        <KpiTile
           label="Unrealized PnL"
           value={fmtUSD(unrealizedTotal)}
           sub={`${openEnriched.filter((m) => m.unrealized > 0).length} up · ${openEnriched.filter((m) => m.unrealized <= 0).length} down`}
@@ -1448,7 +1459,7 @@ function App({ data, lastFetched, onRefresh, fetchError, cryptoData }) {
           <div className="card-head">
             <div className="card-title">Resolved &amp; closed trades <span className="card-count mono">last {Math.min(50, resolved.length)}</span></div>
             <div className="card-meta mono">
-              realized {fmtUSD(resolved.reduce((s, m) => s + m.pnl, 0))} ·
+              realized {fmtUSD(realizedPnL)} ·
               avg PnL {resolved.length ? fmtUSD(resolved.reduce((s, m) => s + m.pnl, 0) / resolved.length) : "—"}
             </div>
           </div>
