@@ -505,14 +505,27 @@ def apply_closure_to_state(state, pnl):
     state["realized_pnl"] = round(state.get("realized_pnl", 0.0) + pnl, 2)
 
 
+def _closure_pnl(mkt):
+    """Mirror web/market_transform.js: resolved markets carry the realized
+    pnl at the top level (m.pnl); early-closed markets (stop/take/forecast)
+    carry it on the position dict (m.position.pnl)."""
+    status = mkt.get("status")
+    if status == "resolved":
+        return mkt.get("pnl")
+    if status == "closed":
+        return (mkt.get("position") or {}).get("pnl")
+    return None
+
+
 def maybe_backfill_realized_pnl(state):
     """One-shot self-heal: reconstruct state.realized_pnl from market files.
 
     Triggered only when state.realized_pnl is 0 but wins/losses already
     show recorded closures — the field was added retroactively to a bot
-    that already had history. Sums pnl across all market files where pnl
-    is set, persists if the value changed. Idempotent: subsequent calls
-    bail at the first guard once the field is non-zero.
+    that already had history. Sums pnl across all closed/resolved market
+    files (matching dashboard semantics) and persists if the value
+    changed. Idempotent: subsequent calls bail at the first guard once
+    the field is non-zero.
     """
     if state.get("realized_pnl", 0.0) != 0.0:
         return
@@ -520,7 +533,8 @@ def maybe_backfill_realized_pnl(state):
         return
 
     markets = load_all_markets()
-    pnls = [m["pnl"] for m in markets if m.get("pnl") is not None]
+    pnls = [_closure_pnl(m) for m in markets]
+    pnls = [p for p in pnls if p is not None]
     recomputed = round(sum(pnls), 2)
     if recomputed == 0.0:
         return

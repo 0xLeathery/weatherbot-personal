@@ -190,7 +190,9 @@ class TestTakeProfitPathUpdatesRealizedPnL:
 # --- one-shot self-heal: maybe_backfill_realized_pnl -----------------------
 
 def _closed_market(name, pnl, market_id="mkt_x"):
-    """A market with a closed position carrying a realized pnl."""
+    """An early-closed market (stop/take/forecast). Pnl lives on the
+    position dict only — top-level mkt.pnl stays None. Mirrors what
+    bot_v2.py actually writes at lines 525, 686, 1059."""
     pos = _make_position()
     pos["market_id"] = market_id
     pos["status"] = "closed"
@@ -198,6 +200,20 @@ def _closed_market(name, pnl, market_id="mkt_x"):
     mkt = _make_market(position=pos)
     mkt["market_id"] = market_id
     mkt["status"] = "closed"
+    # mkt["pnl"] intentionally stays None — only set on resolution
+    return name, mkt
+
+
+def _resolved_market(name, pnl, market_id="mkt_x"):
+    """A fully-resolved market. Pnl is mirrored to BOTH mkt.pnl and
+    mkt.position.pnl (bot_v2.py:844 and :848)."""
+    pos = _make_position()
+    pos["market_id"] = market_id
+    pos["status"] = "closed"
+    pos["pnl"] = pnl
+    mkt = _make_market(position=pos)
+    mkt["market_id"] = market_id
+    mkt["status"] = "resolved"
     mkt["pnl"] = pnl
     return name, mkt
 
@@ -296,3 +312,27 @@ class TestMaybeBackfillRealizedPnL:
         maybe_backfill_realized_pnl(state)
 
         assert state["realized_pnl"] == 2.50  # only the closed one
+
+    def test_handles_both_closed_and_resolved_markets(self, tmp_path, monkeypatch):
+        """Production data has both shapes: early-closed markets (status='closed'
+        with pnl on position only) and resolved markets (status='resolved' with
+        pnl on top-level). Backfill must read both correctly without
+        double-counting the resolved ones (which have pnl in both places)."""
+        monkeypatch.setattr("bot_v2.MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr("bot_v2.STATE_FILE", tmp_path / "state.json")
+        (tmp_path / "markets").mkdir()
+
+        for name, mkt in [
+            _closed_market("early_a", -3.00, market_id="mkt_a"),    # stop_loss
+            _closed_market("early_b", 5.00, market_id="mkt_b"),     # take_profit
+            _resolved_market("final_c", -1.00, market_id="mkt_c"),  # final resolution
+            _resolved_market("final_d", 2.50, market_id="mkt_d"),   # final resolution
+        ]:
+            (tmp_path / "markets" / f"{name}.json").write_text(json.dumps(mkt))
+        _write_state(tmp_path / "state.json", wins=2, losses=2, total_trades=4, realized_pnl=0.0)
+
+        state = json.loads((tmp_path / "state.json").read_text())
+        maybe_backfill_realized_pnl(state)
+
+        # -3 + 5 - 1 + 2.5 = 3.50
+        assert state["realized_pnl"] == 3.50
