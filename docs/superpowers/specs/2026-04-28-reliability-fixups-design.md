@@ -66,8 +66,8 @@ set -m
 
 mkdir -p data data/markets
 
-python3 dashboard_server.py >> dashboard.log 2>&1 &
-python3 bot_v2.py run       >> bot_v2.log     2>&1 &
+python3 dashboard_server.py &
+python3 bot_v2.py run >> bot_v2.log 2>&1 &
 
 # Wait for ANY child to exit. Capture its exit code, kill the rest, exit non-zero
 # so Railway notices and restarts the whole container.
@@ -82,7 +82,7 @@ Notes:
 - `set -m` enables job control so `kill 0` reaches the child group.
 - The existing config-from-env block at the top of the script stays unchanged.
 - `crypto_bot.py` is removed from the script. The file remains on disk; reviving it later as its own Railway service is a separate task.
-- `dashboard.log` is added (currently the dashboard inherits stdout/stderr; redirecting it lets us correlate dashboard crashes via the log file).
+- Dashboard stdout/stderr inherit as before — no new log file. Out of scope for the supervision fix.
 
 **Verification.** Manual smoke test under `bash`:
 1. Start the script with both children stubbed to a `sleep 60`.
@@ -112,48 +112,74 @@ Net effect: `state.realized_pnl` is correct (one increment), but `closures.jsonl
 
 **Fix.** Codify the contract: **`closures.jsonl` is at-least-once; consumers MUST dedup by `(market_id, close_reason)`, keeping the first row.** Rows with a missing `market_id` (legacy / partially-filled data) are passed through unchanged — they are not deduplicated against each other, since the dedup key would collapse them spuriously.
 
-Three changes:
+Two changes (no new modules — both consumers are single-use, so we inline per CLAUDE.md "no abstractions for single-use code"):
 
-1. **Add a small Python helper** in a new module `closures_io.py`:
+1. **Inline a Python helper in `bot_v2.py`**, placed next to `record_closure` (~line 552). Used only by the startup reconciler in Section C; `walkforward_test.py` does not read the ledger and so does not need it.
 
    ```python
-   def load_closures(path):
-       """Read closures.jsonl, parse each line, skip blanks/parse errors,
-       return list of dicts."""
-       ...
+   def _load_closures():
+       """Read closures.jsonl as a list of dicts. Skip blank lines and
+       JSON parse errors with a warning."""
+       if not LEDGER_FILE.exists():
+           return []
+       rows = []
+       for i, line in enumerate(LEDGER_FILE.read_text(encoding="utf-8").splitlines(), 1):
+           line = line.strip()
+           if not line:
+               continue
+           try:
+               rows.append(json.loads(line))
+           except json.JSONDecodeError as e:
+               print(f"[closures] skipping malformed line {i}: {e}")
+       return rows
 
-   def dedup_closures(rows):
+   def _dedup_closures(rows):
        """Filter to type == 'closure', dedup by (market_id, close_reason)
-       keeping the first occurrence. Reset markers and other types are
-       dropped (callers that want them should iterate raw)."""
-       ...
+       keeping the first occurrence. Rows without market_id pass through
+       unchanged (legacy data). Non-closure types (e.g. reset markers)
+       are filtered out."""
+       seen = set()
+       out = []
+       for r in rows:
+           if r.get("type") != "closure":
+               continue
+           mid = r.get("market_id")
+           if mid is None:
+               out.append(r)
+               continue
+           key = (mid, r.get("close_reason"))
+           if key in seen:
+               continue
+           seen.add(key)
+           out.append(r)
+       return out
    ```
 
-   Used by the startup reconciler (Section C) and by walkforward.
-
-2. **Add a JS helper** in `web/closures.js` (matches the existing module pattern alongside `web/market_transform.js`):
+2. **Inline JS dedup in `Dashboard.html`** next to the existing `closures.jsonl` parser at line 551. Six lines of logic — no new file in `web/`.
 
    ```js
-   export function dedupClosures(rows) {
+   // Dedup duplicate closure rows from at-least-once ledger writes.
+   // Key: (market_id, close_reason); keep first. Rows missing market_id
+   // pass through. Non-closure types (e.g. reset markers) drop out.
+   function dedupClosures(rows) {
      const seen = new Set();
-     const out = [];
-     for (const r of rows) {
-       if (r?.type !== "closure") continue;
+     return rows.filter(r => {
+       if (r?.type !== "closure") return false;
+       if (r.market_id == null) return true;
        const key = `${r.market_id}|${r.close_reason}`;
-       if (seen.has(key)) continue;
+       if (seen.has(key)) return false;
        seen.add(key);
-       out.push(r);
-     }
-     return out;
+       return true;
+     });
    }
    ```
 
-   `Dashboard.html`'s `LiveVsBacktest` component imports and calls this before computing live win-rate.
+   `LiveVsBacktest` calls `dedupClosures(rawClosures)` before computing live win-rate.
 
 3. **Add tests** in `tests/test_closure_dedup.py`:
-   - Unit test for `dedup_closures`: input with two rows sharing `(market_id, close_reason)` → output has one row, the first.
+   - Unit test for `_dedup_closures`: input with two rows sharing `(market_id, close_reason)` → output has one row, the first.
    - Unit test for legacy rows: input with two rows lacking `market_id` → both are returned (no spurious collapse).
-   - Unit test for non-closure rows: a `type: "reset"` marker is filtered out by `dedup_closures` (callers wanting markers iterate raw).
+   - Unit test for non-closure rows: a `type: "reset"` marker is filtered out by `_dedup_closures` (callers wanting markers iterate raw).
    - Integration test simulating the crash: write two duplicate rows to a temp `closures.jsonl`, run the startup path (Section C's reconciler), assert `state.realized_pnl` reflects exactly one increment per closure.
 
 **Verification.** New unit tests cover both the dedup helper and the recovery scenario. Existing tests untouched.
@@ -164,37 +190,66 @@ Three changes:
 
 **Problem.** `maybe_backfill_realized_pnl` (`bot_v2.py:566`) bails immediately if `state.realized_pnl != 0`. It was designed as a one-shot migration helper. After manual ledger repair (`tools/repair_ledger.py`) or any future closure-ledger change, the field can be stale and the function will never re-run.
 
-**Fix.** Replace with `reconcile_realized_pnl(state)` that runs unconditionally at startup:
+**Fix.** Replace with `reconcile_state_from_ledger(state)` that runs unconditionally at startup. Reconciles **all three** counters that derive from closures: `realized_pnl`, `wins`, `losses`. Reconciling only `realized_pnl` would leave wins/losses stale under the same recovery scenarios.
 
 ```python
-def reconcile_realized_pnl(state):
-    """Recompute state.realized_pnl from deduped closures.jsonl. If it
-    differs from the persisted value by > $0.01, log the drift and overwrite.
-    Idempotent. Safe to run on every startup."""
-    rows = load_closures(LEDGER_FILE)
-    deduped = dedup_closures(rows)
-    expected = round(sum((r.get("pnl") or 0.0) for r in deduped), 2)
-    actual   = round(state.get("realized_pnl", 0.0), 2)
-    if abs(expected - actual) > 0.01:
-        print(f"[reconcile] realized_pnl {actual} → {expected} "
-              f"(drift detected across {len(deduped)} closures)")
-        state["realized_pnl"] = expected
+def reconcile_state_from_ledger(state):
+    """Recompute realized_pnl, wins, losses from deduped closures.jsonl.
+    If any of the three differ from the persisted value (realized_pnl by
+    > $0.01, counters by any amount), log the drift and overwrite. Idempotent.
+    Safe to run on every startup."""
+    deduped = _dedup_closures(_load_closures())
+
+    expected_pnl    = round(sum((r.get("pnl") or 0.0) for r in deduped), 2)
+    expected_wins   = sum(1 for r in deduped if (r.get("pnl") or 0.0) > 0)
+    expected_losses = sum(1 for r in deduped if (r.get("pnl") or 0.0) <= 0 and r.get("pnl") is not None)
+
+    actual_pnl    = round(state.get("realized_pnl", 0.0), 2)
+    actual_wins   = state.get("wins", 0)
+    actual_losses = state.get("losses", 0)
+
+    drift = (
+        abs(expected_pnl - actual_pnl) > 0.01
+        or expected_wins   != actual_wins
+        or expected_losses != actual_losses
+    )
+    if drift:
+        print(f"[reconcile] realized_pnl {actual_pnl} → {expected_pnl}, "
+              f"wins {actual_wins} → {expected_wins}, "
+              f"losses {actual_losses} → {expected_losses} "
+              f"({len(deduped)} deduped closures)")
+        state["realized_pnl"] = expected_pnl
+        state["wins"]         = expected_wins
+        state["losses"]       = expected_losses
         save_state(state)
 ```
 
-Called once at startup (`bot_v2.py:1213`) right after `maybe_backfill_ledger()`. The old `maybe_backfill_realized_pnl` function is deleted; its single caller is replaced.
+**Caller pattern change** (worth flagging — current code calls `maybe_backfill_realized_pnl(load_state())` and discards the returned/mutated state outside of the inner save). The new pattern explicitly hoists state into the main scope:
+
+```python
+# bot_v2.py:1213 (startup)
+state = load_state()
+maybe_backfill_ledger()
+reconcile_state_from_ledger(state)
+# state is now authoritative for the rest of startup.
+```
+
+Any code path that subsequently calls `load_state()` will pick up the reconciled values from disk anyway, since `reconcile_state_from_ledger` calls `save_state` on drift.
+
+The old `maybe_backfill_realized_pnl` function is deleted; its single caller is replaced.
 
 The ordering at startup becomes:
 1. `load_state()` — reads from disk
 2. `maybe_backfill_ledger()` — if `closures.jsonl` is empty, reconstruct from market files
-3. `reconcile_realized_pnl(state)` — recompute from the now-populated ledger and correct state
+3. `reconcile_state_from_ledger(state)` — recompute from the now-populated ledger and correct state
 
 This also subsumes the original migration scenario (state has `realized_pnl=0` but wins/losses recorded): the ledger is backfilled in step 2, and step 3 sums it.
 
 **Verification.**
 - Unit test: state with stale realized_pnl + ledger with known sum → after reconcile, state matches ledger.
+- Unit test: state with stale wins/losses + ledger with mixed-sign pnl → counters match deduped row counts.
 - Unit test: idempotent — second call leaves state unchanged.
-- Unit test: drift < $0.01 → no write (avoid spurious overwrites from float noise).
+- Unit test: drift < $0.01 in pnl AND counters match → no write (avoid spurious overwrites from float noise).
 
 ---
 
@@ -236,22 +291,23 @@ These are listed in the spec for completeness and tracked in the implementation 
 - `pytest` reports **264 passed, 0 failed** (currently 263 passed, 1 failed).
 - Total diff is roughly:
   - `entrypoint.sh`: ~15 lines net
-  - `closures_io.py` (new): ~40 lines
-  - `web/closures.js` (new): ~20 lines
-  - `bot_v2.py`: -25/+15 (delete `maybe_backfill_realized_pnl`, add `reconcile_realized_pnl`, swap caller)
-  - `Dashboard.html`: ~5 lines (import + call dedup before win-rate calc)
-  - `walkforward_test.py`: ~5 lines if it reads the ledger directly (verify; may not need changes)
-  - `tests/test_closure_recovery.py` (new): ~80 lines
+  - `bot_v2.py`: -25/+60 (delete `maybe_backfill_realized_pnl`, add `_load_closures` + `_dedup_closures` + `reconcile_state_from_ledger`, swap caller pattern)
+  - `Dashboard.html`: ~10 lines (inline `dedupClosures` next to existing closures parser at line 551, call from `LiveVsBacktest` before win-rate calc)
+  - `tests/test_closure_dedup.py` (new): ~100 lines
   - `tests/test_scan_and_update.py`: ~5 lines (HRRR mock override in the failing test)
+- `walkforward_test.py` is **not** modified — it does not read `closures.jsonl`.
 
 ---
 
 ## 6. Risk and rollout
 
 - **No production data is touched.** All changes are code-level; existing `state.json` and `closures.jsonl` files are read with the new dedup contract, which leaves correct data correct.
-- **Reconciler may rewrite `state.realized_pnl`** the first time it runs in prod if the current value drifts. This is the intended behavior — and exactly the symptom the user reported.
+- **The literal symptom (`realized_pnl=0` locally) is not "fixed" by this change.** Local state was reset 2026-04-23 with no closures since; there is nothing to reconcile against. If prod also shows `0`, that's because no positions have closed since the last reset — verify by reading Railway's `data/closures.jsonl` directly. This change *prevents future drift*; it does not backfill historical state.
+- **Reconciler may rewrite `state.realized_pnl`** (and wins/losses) the first time it runs in prod if the current value drifts. The drift will be visible in startup logs as `[reconcile] …` lines.
 - **Backwards compatibility:** dedup keeps the *first* occurrence, so older rows win over duplicates appended on restart. This matches the timestamp ordering you'd expect (the first row's `ts` is closer to the actual closure event).
-- **Rollout:** single PR. Merge to main; Railway auto-deploys. Watch first restart's logs for `[reconcile] realized_pnl …` lines; if they appear, the drift was real and is now corrected.
+- **Branching:** HEAD is currently detached. Plan must start with `git checkout -b <branch> main`.
+- **PR shape:** single PR with **four logically separate commits** (one per fix A/B/C/D). Reviewers can read each fix independently. The fixes don't share code paths (A is shell, D is one test, B and C share the dedup helper) so commit-level isolation is straightforward and improves review.
+- **Rollout:** Merge to main; Railway auto-deploys. Watch first restart's logs for `[reconcile] …` lines; if they appear, the drift was real and is now corrected.
 
 ---
 
