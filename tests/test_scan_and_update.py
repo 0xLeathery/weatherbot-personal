@@ -767,6 +767,21 @@ class TestFilterInteraction:
         (tmp_path / "markets").mkdir()
         (tmp_path / "state.json").write_text(json.dumps(_make_state()))
 
+        # Override HRRR helper for THIS test only. Default _mock_open_meteo_hrrr
+        # returns [76, 78, 80] which puts HRRR's bucket at 75-80°F. Spread
+        # strategy bets on HRRR's bucket — but this test only creates a 70-75°F
+        # market, so the bot never finds a target. Realign HRRR with the bucket
+        # under test.
+        def _hrrr_in_70_75():
+            dates = [(datetime.now(timezone.utc) + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(3)]
+            m = MagicMock()
+            # 75°F stays inside 70-75 bucket (in_bucket: t_low <= temp <= t_high).
+            # Spread vs ECMWF (72°F) = 3 > SPREAD_THRESHOLD (2.0), so the trade fires.
+            m.json.return_value = {"daily": {"time": dates, "temperature_2m_max": [75, 74, 73]}}
+            return m
+        import tests.test_scan_and_update as _this_module
+        monkeypatch.setattr(_this_module, "_mock_open_meteo_hrrr", _hrrr_in_70_75)
+
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         event = _make_polymarket_event("dallas", today, markets=[
             {"id": "mkt_1", "question": f"Will the high be between 70-75°F on {today}?", "outcomePrices": "[0.30, 0.32]", "volume": 5000},
