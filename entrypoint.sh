@@ -36,18 +36,25 @@ fi
 # data/ is a Railway-mounted volume in production; ensure it exists locally too
 mkdir -p data data/markets
 
-# Spawn the dashboard server in the background. It serves Dashboard.html and
-# data/ over HTTP basic auth and keeps data/manifest.json fresh. If the bot
-# (foreground) exits, the container exits and the dashboard goes with it,
-# which is fine — Railway restarts the container.
+# Run dashboard + bot under fail-fast supervision: if either child dies,
+# kill the other and exit non-zero so Railway restarts the whole container.
+# Without this, a silent bot crash leaves the dashboard happily serving
+# stale data while no trading happens.
+#
+# crypto_bot.py is intentionally not launched here. To revive it, either
+# add a third `python3 crypto_bot.py run &` line below, or run it as a
+# separate Railway service with its own container.
+set -m
+
 python3 dashboard_server.py &
-DASH_PID=$!
-trap 'kill $DASH_PID 2>/dev/null || true' EXIT
-
 python3 bot_v2.py run >> bot_v2.log 2>&1 &
-BOT_PID=$!
 
-python3 crypto_bot.py run >> crypto_bot.log 2>&1 &
-CRYPTO_PID=$!
-
-wait $BOT_PID $CRYPTO_PID
+wait -n
+exit_code=$?
+# Each backgrounded child is in its own process group under `set -m`, so
+# kill 0 (parent's pgrp) wouldn't reach them. Signal each job explicitly,
+# then drain so we don't leave a zombie behind.
+for j in $(jobs -p); do kill "$j" 2>/dev/null || true; done
+wait 2>/dev/null || true
+echo "[entrypoint] one of the children exited with code $exit_code; aborting" >&2
+exit "$exit_code"
