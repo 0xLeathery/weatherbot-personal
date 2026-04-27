@@ -551,6 +551,48 @@ def record_closure(mkt, pos):
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def _load_closures():
+    """Read closures.jsonl as a list of dicts. Skip blank lines.
+    Skip lines that fail JSON parse with a one-line warning."""
+    if not LEDGER_FILE.exists():
+        return []
+    rows = []
+    for i, line in enumerate(LEDGER_FILE.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as e:
+            print(f"[closures] skipping malformed line {i}: {e}")
+    return rows
+
+
+def _dedup_closures(rows):
+    """Apply the closures.jsonl at-least-once dedup contract.
+
+    - Filter out non-closure types (reset markers etc.).
+    - Dedup by (market_id, close_reason), keeping the first occurrence.
+    - Rows with market_id is None pass through unchanged so legacy data
+      isn't spuriously collapsed.
+    """
+    seen = set()
+    out = []
+    for r in rows:
+        if r.get("type") != "closure":
+            continue
+        mid = r.get("market_id")
+        if mid is None:
+            out.append(r)
+            continue
+        key = (mid, r.get("close_reason"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
 def _closure_pnl(mkt):
     """Mirror web/market_transform.js: resolved markets carry the realized
     pnl at the top level (m.pnl); early-closed markets (stop/take/forecast)

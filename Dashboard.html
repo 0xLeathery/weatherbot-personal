@@ -564,6 +564,21 @@ function parseClosuresJsonl(text) {
   return rows;
 }
 
+// Dedup duplicate closure rows from at-least-once ledger writes.
+// Key: (market_id, close_reason); keep first. Rows missing market_id
+// pass through. Non-closure types (e.g. reset markers) drop out.
+function dedupClosures(rows) {
+  const seen = new Set();
+  return rows.filter(r => {
+    if (r?.type !== "closure") return false;
+    if (r.market_id == null) return true;
+    const key = `${r.market_id}|${r.close_reason}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function scopeSinceLastReset(rows) {
   let cutoff = null;
   for (const r of rows) {
@@ -1140,7 +1155,11 @@ function CryptoView({ cryptoData }) {
 function LiveVsBacktest({ closuresText, baseline, configSnapshot }) {
   const data = useMemo(() => {
     const rows = parseClosuresJsonl(closuresText);
-    return scopeSinceLastReset(rows);
+    // dedup AFTER scopeSinceLastReset: scoping first lets reset markers do
+    // their job, then dedup removes any duplicated closure rows from the
+    // resulting window — duplicate rows can never inflate win/loss/PnL counts.
+    const scoped = scopeSinceLastReset(rows);
+    return { ...scoped, closures: dedupClosures(scoped.closures) };
   }, [closuresText]);
 
   const { closures, cutoff, hasResetMarker } = data;
