@@ -684,6 +684,7 @@ async function loadData() {
       (typeof state.peak_balance === "number") ? state.peak_balance : 0,
       derived.peakBalance,
     ),
+    realized_pnl: (typeof state.realized_pnl === "number") ? state.realized_pnl : 0,
     last_updated: lastTickTs || new Date().toISOString(),
   };
 
