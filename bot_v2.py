@@ -593,44 +593,44 @@ def _dedup_closures(rows):
     return out
 
 
-def _closure_pnl(mkt):
-    """Mirror web/market_transform.js: resolved markets carry the realized
-    pnl at the top level (m.pnl); early-closed markets (stop/take/forecast)
-    carry it on the position dict (m.position.pnl)."""
-    status = mkt.get("status")
-    if status == "resolved":
-        return mkt.get("pnl")
-    if status == "closed":
-        return (mkt.get("position") or {}).get("pnl")
-    return None
+def reconcile_state_from_ledger(state):
+    """Recompute realized_pnl, wins, losses from the deduped closure ledger.
 
+    Runs unconditionally at every startup. If the persisted state differs
+    from what the ledger says (realized_pnl by > $0.01, counters by any
+    amount), log the drift and overwrite. Idempotent: a second call on
+    already-reconciled state is a no-op (no save_state, no log line).
 
-def maybe_backfill_realized_pnl(state):
-    """One-shot self-heal: reconstruct state.realized_pnl from market files.
-
-    Triggered only when state.realized_pnl is 0 but wins/losses already
-    show recorded closures — the field was added retroactively to a bot
-    that already had history. Sums pnl across all closed/resolved market
-    files (matching dashboard semantics) and persists if the value
-    changed. Idempotent: subsequent calls bail at the first guard once
-    the field is non-zero.
+    Replaces the older one-shot maybe_backfill_realized_pnl helper, which
+    bailed once realized_pnl was non-zero and so couldn't recover from
+    drift introduced by manual ledger repair or partial-crash duplicate
+    rows.
     """
-    if state.get("realized_pnl", 0.0) != 0.0:
-        return
-    if state.get("wins", 0) == 0 and state.get("losses", 0) == 0:
-        return
+    deduped = _dedup_closures(_load_closures())
 
-    markets = load_all_markets()
-    pnls = [_closure_pnl(m) for m in markets]
-    pnls = [p for p in pnls if p is not None]
-    recomputed = round(sum(pnls), 2)
-    if recomputed == 0.0:
-        return
+    expected_pnl    = round(sum((r.get("pnl") or 0.0) for r in deduped), 2)
+    expected_wins   = sum(1 for r in deduped if (r.get("pnl") or 0.0) > 0)
+    expected_losses = sum(1 for r in deduped
+                          if r.get("pnl") is not None and (r.get("pnl") or 0.0) <= 0)
 
-    print(f"[backfill] realized_pnl 0.0 → {recomputed} "
-          f"(reconstructed from {len(pnls)} closures)")
-    state["realized_pnl"] = recomputed
-    save_state(state)
+    actual_pnl    = round(state.get("realized_pnl", 0.0), 2)
+    actual_wins   = state.get("wins", 0)
+    actual_losses = state.get("losses", 0)
+
+    drift = (
+        abs(expected_pnl - actual_pnl) > 0.01
+        or expected_wins   != actual_wins
+        or expected_losses != actual_losses
+    )
+    if drift:
+        print(f"[reconcile] realized_pnl {actual_pnl} → {expected_pnl}, "
+              f"wins {actual_wins} → {expected_wins}, "
+              f"losses {actual_losses} → {expected_losses} "
+              f"({len(deduped)} deduped closures)")
+        state["realized_pnl"] = expected_pnl
+        state["wins"]         = expected_wins
+        state["losses"]       = expected_losses
+        save_state(state)
 
 
 def maybe_backfill_ledger():
@@ -1250,10 +1250,12 @@ def run_loop():
     print(f"  Data:       {DATA_DIR.resolve()}")
     print(f"  Ctrl+C to stop\n")
 
-    # One-shot self-heal: if realized_pnl was added after this bot already had
-    # trade history, reconstruct the field from market files. No-op once done.
-    maybe_backfill_realized_pnl(load_state())
+    # Self-healing startup: backfill the ledger from market files if it's
+    # empty (post-migration scenario), then reconcile state.realized_pnl /
+    # wins / losses against the ledger. Both are idempotent.
+    state = load_state()
     maybe_backfill_ledger()
+    reconcile_state_from_ledger(state)
 
     last_full_scan = 0
 
